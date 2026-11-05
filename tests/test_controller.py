@@ -185,6 +185,29 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(results[0], (self.item.manual_departure, "Manuell"))
         self.assertEqual(results[1], (self.now + timedelta(hours=1), "Veckoschema"))
 
+    def test_schedule_includes_interval_crossing_seven_day_boundary(self):
+        # Seven displayed local days end at midnight, which is 23:00 UTC.
+        boundary = datetime(2026, 11, 8, 23, 0, tzinfo=UTC)
+        crossing = boundary + timedelta(minutes=15)
+        starts_at_boundary = boundary + timedelta(minutes=30)
+        self.item.local_departures = [
+            {"departure": crossing, "uid": "crossing"},
+            {"departure": starts_at_boundary, "uid": "outside"},
+        ]
+
+        schedule = self.item.schedule_7_days
+        self.assertEqual([entry["uid"] for entry in schedule], ["crossing"])
+        self.assertEqual(schedule[0]["start"], (boundary - timedelta(minutes=15)).isoformat())
+        self.assertEqual(schedule[0]["departure"], crossing.isoformat())
+
+    def test_no_extra_departure_when_heating_is_zero_or_temperature_unknown(self):
+        boundary = datetime(2026, 11, 8, 23, 0, tzinfo=UTC)
+        self.item.local_departures = [{"departure": boundary + timedelta(minutes=15), "uid": "outside"}]
+        for value in (State("20", "°C"), State("unavailable", "°C")):
+            with self.subTest(temperature=value.state):
+                self.hass.states["sensor.outside"] = value
+                self.assertEqual(self.item.schedule_7_days, [])
+
     @sync_test
     async def test_multiple_local_departures_persist_and_can_be_removed_individually(self):
         first = self.now + timedelta(hours=1)

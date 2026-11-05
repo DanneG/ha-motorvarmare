@@ -461,12 +461,15 @@ class HeaterController:
             locals_by_time.setdefault(item["departure"], []).append(item)
         schedule = []
         for departure, source in self._candidates(now):
-            if departure >= end:
+            start = departure - timedelta(minutes=minutes) if minutes else None
+            # Include a departure just beyond the display range when its
+            # heating interval starts on the final visible local day.
+            if departure >= end and (start is None or start >= end):
                 continue
             local = locals_by_time[departure].pop(0) if source == "Planerad" else None
             schedule.append({
                 "departure": departure.isoformat(),
-                "start": (departure - timedelta(minutes=minutes)).isoformat() if minutes else None,
+                "start": start.isoformat() if start else None,
                 "source": source,
                 "duration_minutes": minutes,
                 "uid": local["uid"] if local else None,
