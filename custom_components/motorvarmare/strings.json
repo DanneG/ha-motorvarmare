@@ -1,0 +1,60 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add a car",
+        "description": "Configure one car. Add the integration again for another car.",
+        "data": {
+          "name": "Car name",
+          "switch_entity": "Heater switch",
+          "temperature_entity": "Outdoor temperature sensor",
+          "calendar_entity": "Calendar (optional)",
+          "event_titles": "Exact event titles (optional)",
+          "event_keywords": "Words or tags (optional)",
+          "duration_warm": "Minutes above 0 °C and below 10 °C",
+          "duration_cool": "Minutes above −15 °C to 0 °C",
+          "duration_cold": "Minutes at −15 °C or colder"
+        },
+        "data_description": {
+          "event_titles": "Enter complete event titles, one per line or separated by commas. For example: TILL JOBBET. Spaces are allowed.",
+          "event_keywords": "Enter words, phrases or tags, one per line or separated by commas. Any single title or word/tag can match. Capitalization is ignored."
+        }
+      }
+    },
+    "error": {
+      "invalid_name": "Enter a car name.",
+      "invalid_tag": "Enter a non-empty calendar tag.",
+      "missing_calendar_rule": "Enter a title, word or tag for the selected calendar.",
+      "duplicate_switch": "This switch is already used by another car."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Edit car settings",
+        "description": "Choose the car's switch, outdoor sensor and optional calendar. Clear the calendar field to disable calendar departures.",
+        "data": {
+          "name": "Car name",
+          "switch_entity": "Heater switch",
+          "temperature_entity": "Outdoor temperature sensor",
+          "calendar_entity": "Calendar (optional)",
+          "event_titles": "Exact event titles (optional)",
+          "event_keywords": "Words or tags (optional)",
+          "duration_warm": "Minutes above 0 °C and below 10 °C",
+          "duration_cool": "Minutes above −15 °C to 0 °C",
+          "duration_cold": "Minutes at −15 °C or colder"
+        },
+        "data_description": {
+          "event_titles": "Enter complete event titles, one per line or separated by commas. For example: TILL JOBBET. Spaces are allowed.",
+          "event_keywords": "Enter words, phrases or tags, one per line or separated by commas. Any single title or word/tag can match. Capitalization is ignored."
+        }
+      }
+    },
+    "error": {
+      "invalid_name": "Enter a car name.",
+      "invalid_tag": "Enter a non-empty calendar tag.",
+      "missing_calendar_rule": "Enter a title, word or tag for the selected calendar.",
+      "duplicate_switch": "This switch is already used by another car."
+    }
+  }
+}

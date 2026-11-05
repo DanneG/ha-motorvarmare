@@ -1,0 +1,60 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Lägg till en bil",
+        "description": "Ställ in en bil. Lägg till integrationen igen för ytterligare en bil.",
+        "data": {
+          "name": "Bilens namn",
+          "switch_entity": "Brytare för motorvärmaren",
+          "temperature_entity": "Sensor för utetemperatur",
+          "calendar_entity": "Kalender (valfritt)",
+          "event_titles": "Exakta händelsetitlar (valfritt)",
+          "event_keywords": "Ord eller taggar (valfritt)",
+          "duration_warm": "Minuter över 0 °C och under 10 °C",
+          "duration_cool": "Minuter över −15 °C till och med 0 °C",
+          "duration_cold": "Minuter vid −15 °C eller kallare"
+        },
+        "data_description": {
+          "event_titles": "Ange fullständiga händelsetitlar, en per rad eller separerade med kommatecken. Exempel: TILL JOBBET. Mellanslag får ingå.",
+          "event_keywords": "Ange ord, fraser eller taggar, en per rad eller separerade med kommatecken. En titel eller ett ord/en tagg räcker för träff. Stora och små bokstäver behandlas lika."
+        }
+      }
+    },
+    "error": {
+      "invalid_name": "Ange ett namn för bilen.",
+      "invalid_tag": "Ange en kalenderhändelsetagg.",
+      "missing_calendar_rule": "Ange minst en titel, ett ord eller en tagg för den valda kalendern.",
+      "duplicate_switch": "Brytaren används redan av en annan bil."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Ändra bilens inställningar",
+        "description": "Välj brytare, utetemperatursensor och eventuellt kalender. Töm kalenderfältet för att stänga av kalenderstyrning.",
+        "data": {
+          "name": "Bilens namn",
+          "switch_entity": "Brytare för motorvärmaren",
+          "temperature_entity": "Sensor för utetemperatur",
+          "calendar_entity": "Kalender (valfritt)",
+          "event_titles": "Exakta händelsetitlar (valfritt)",
+          "event_keywords": "Ord eller taggar (valfritt)",
+          "duration_warm": "Minuter över 0 °C och under 10 °C",
+          "duration_cool": "Minuter över −15 °C till och med 0 °C",
+          "duration_cold": "Minuter vid −15 °C eller kallare"
+        },
+        "data_description": {
+          "event_titles": "Ange fullständiga händelsetitlar, en per rad eller separerade med kommatecken. Exempel: TILL JOBBET. Mellanslag får ingå.",
+          "event_keywords": "Ange ord, fraser eller taggar, en per rad eller separerade med kommatecken. En titel eller ett ord/en tagg räcker för träff. Stora och små bokstäver behandlas lika."
+        }
+      }
+    },
+    "error": {
+      "invalid_name": "Ange ett namn för bilen.",
+      "invalid_tag": "Ange en kalenderhändelsetagg.",
+      "missing_calendar_rule": "Ange minst en titel, ett ord eller en tagg för den valda kalendern.",
+      "duplicate_switch": "Brytaren används redan av en annan bil."
+    }
+  }
+}

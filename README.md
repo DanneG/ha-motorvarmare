@@ -82,4 +82,3 @@ Tiderna är ett utgångsläge, inte en garanti för att motorn har uppnått en v
 - Home Assistant, Zigbee-nätverket och brytaren måste fungera och kunna kommunicera för att en planerad avstängning ska nå fram. Avbrott kan göra att värmaren förblir påslagen.
 - Använd gärna en separat, oberoende maxtimer som kan bryta strömmen även om Home Assistant eller Zigbee slutar fungera.
 - Prova varje bils konfiguration och kontrollera både start och avstängning innan lösningen används utan uppsikt. Kontrollera även att rätt utetemperatur och kalender visas.
-
