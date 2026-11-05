@@ -1,84 +1,37 @@
-# Motorvärmare för Home Assistant
+# Engine Heater for Home Assistant
 
-Motorvärmare är en anpassad integration för att styra en brytare per bil inför en avresa. Du väljer brytare och utetemperatursensor för varje bil. Integrationen beräknar när värmaren ska starta och skickar ett avstängningskommando vid avresan. Avresan kan anges som en engångstid, ingå i ett veckoschema eller hämtas från en kalenderhändelse med en viss titel, ett ord eller en tagg.
+English · [Svenska](docs/README.sv.md)
 
-Det här är en **integration**, inte ett Home Assistant-tillägg som körs som en separat tjänst. Zigbee-brytarna och temperatursensorn ska redan finnas i Home Assistant.
+Schedule an electric engine heater using the outdoor temperature and a departure time. Each car has its own switch and departure schedule. Configuration, entities and the companion dashboard card support English and Swedish.
 
-## Installera
+## Installation
 
-### Via Marketplace eller HACS
+Add `https://github.com/DanneG/ha-motorvarmare` as a custom repository in Marketplace or HACS with category **Integration**, then install it. Restart Home Assistant after updating. Under **Settings → Devices & services**, add **Motorvärmare** once for each car. Select the car's switch and an outdoor temperature sensor in °C or °F. A Google calendar is optional.
 
-1. Öppna Marketplace/HACS i Home Assistant och välj **Anpassade repositories** i menyn.
-2. Lägg till `https://github.com/DanneG/ha-motorvarmare` med kategorin **Integration**.
-3. Sök efter **Motorvärmare**, ladda ned integrationen och starta om Home Assistant.
-4. Gå till **Inställningar → Enheter och tjänster → Lägg till integration**, sök efter **Motorvärmare** och följ stegen.
-5. Lägg till en separat instans för varje bil. Välj bilens brytare och en utetemperatursensor, och välj eventuellt en kalender. Anpassa gångtiderna efter behov. Samma temperatursensor kan användas för båda bilarna, men varje bil behöver en egen brytare. Sensorn måste ange temperaturen i °C eller °F.
+Also install the separate [Engine Heater dashboard card](https://github.com/DanneG/ha-motorvarmare-card) as a custom repository with category **Dashboard**. Add the card to a dashboard and select the car's status entity. See the card's installation instructions.
 
-För att ändra valen senare, öppna integrationens inställningar under **Inställningar → Enheter och tjänster**. Kalenderfältet kan tömmas för att stänga av kalenderstyrning.
+For a manual installation, copy `custom_components/motorvarmare` into the Home Assistant configuration's `custom_components` directory, including `translations` and `brand`, and restart Home Assistant. The card is installed separately.
 
-### Manuell installation
+## Departures and calendar
 
-Kopiera mappen `custom_components/motorvarmare` till Home Assistant-konfigurationens `config/custom_components/motorvarmare/`, behåll alla filer i mappen och starta om Home Assistant. Lägg därefter till integrationen enligt steg 4–5 ovan.
+The card shows the next seven local calendar days, with departures and estimated heater start and stop times. Start times are **estimates using the current outdoor temperature**, not a weather forecast, and can change as the temperature changes. Departures may come from the weekly schedule, Google Calendar, or the integration's own calendar.
 
-### Om fältnamn eller ikon inte uppdateras
+Select a day in the card to add one or more departure times. These are stored in the car's own Home Assistant calendar and can be removed individually. They are not written to Google Calendar. The existing weekly schedule and single manual-departure entity remain available. The nearest future departure controls the heater.
 
-Kopiera hela mappen `custom_components/motorvarmare`, inklusive undermapparna `translations` och `brand`, när du uppdaterar integrationen. Starta om Home Assistant helt och uppdatera därefter webbläsaren. Om äldre fältnamn fortfarande visas, prova att ladda om sidan utan cache eller rensa appens webbdata. Den lokala integrationsikonen stöds i Home Assistant 2026.3 och senare.
+To use Google Calendar, first set up the [Google Calendar integration](https://www.home-assistant.io/integrations/google/), choose a calendar in the car's settings, and enter exact event titles and/or words or tags, separated by commas or line breaks. An event matches if its entire title equals one of the titles, **or** if any word or tag appears in its title or description. Matching ignores letter case. The event's start is the departure time; all-day events are ignored. Calendar changes can take time to reach Home Assistant.
 
-## Kort på översikten
+## Heating time and start now
 
-Det separata [Motorvärmare-kortet](https://github.com/DanneG/ha-motorvarmare-card) visar status, temperatur och planering och gör det möjligt att ändra avresetider och veckoschema direkt i översikten. Följ kortets egna installationsanvisningar. Att installera integrationen installerar inte kortet automatiskt.
+The run time in minutes is **30 − 1.5 × outdoor temperature in °C**. The result is rounded up to a whole minute and limited to 0–240 minutes. Examples: +10 °C → 15 minutes, 0 °C → 30 minutes, −10 °C → 45 minutes, and −20 °C → 60 minutes. At +20 °C or above the result is zero. Fahrenheit sensors are converted to °C first.
 
-Brytare, utetemperatursensor, kalender, tagg och gångtider ändras i integrationens inställningar under **Enheter och tjänster**. Kortet ställer in avresetider och veckoschema men ändrar inte dessa grundinställningar.
+**Start now** uses the same formula and turns the heater off when the calculated time has elapsed. **Stop** cancels a heating session controlled by the integration. If the switch is already on when scheduled heating should begin, the integration does not take ownership of it. Fixed run-time settings from earlier versions are no longer used.
 
-## Google Kalender
+## Operation and safety
 
-1. Lägg först till Home Assistants vanliga [Google Calendar-integration](https://www.home-assistant.io/integrations/google/). Följ anvisningarna där för Google-konto och behörigheter.
-2. Välj den kalenderentitet som skapats när du ställer in Motorvärmare. Kalender är valfri.
-3. I bilens inställningar kan du ange **exakta händelsetitlar** och/eller **ord och taggar**. Separera flera alternativ med kommatecken eller radbrytning. Exempelvis kan du ange titeln `Till jobbet` och orden/taggarna `#bil1, verkstad`. För en kalender ska minst en titel eller ett ord/en tagg anges. Samma kalender kan användas för båda bilarna med olika inställningar.
-4. Skapa en **tidsbestämd** kalenderhändelse. Händelsen räknas om hela titeln stämmer med någon av de exakta titlarna, **eller** om något av orden/taggarna finns i titeln eller beskrivningen. `Till jobbet` matchar till exempel `TILL JOBBET`, men inte `Till jobbet möte` som exakt titel. Jämförelsen skiljer inte mellan stora och små bokstäver. Händelsens starttid är avresetiden. Heldagshändelser ignoreras.
+Test both start and stop with the actual switch and heater before unattended use. Home Assistant, Zigbee and the switch must communicate for the off command to reach the heater. Use an independent maximum-run timer and equipment rated for the load and environment. Follow the car and heater manufacturers' instructions.
 
-Om du uppdaterar från en tidigare version fortsätter den befintliga taggen att fungera. Den visas bland orden/taggarna nästa gång du öppnar och sparar bilens inställningar. Ta bort eller ändra den om du inte längre vill att den ska ge en matchning.
+The integration has isolated tests but has not yet been fully verified on actual equipment. Scheduling is checked about once a minute and may be affected by outages or calendar sync delays.
 
-Exempel: Händelsen `Jobbet #bil1` börjar 07.30. Vid −5 °C är standardgångtiden 60 minuter och brytaren planeras att slås på 06.30 och stängas av 07.30.
+## License
 
-Kalenderändringar kan ta tid att nå Home Assistant. Lägg därför in eller ändra resor i god tid, och kontrollera den planerade tiden i Home Assistant. Home Assistant och kalendern behöver vara rätt inställda för din tidszon; Home Assistants inställning finns under **Inställningar → System → Allmänt**.
-
-## Manuell avresa
-
-Ange datum och klockslag i bilens entitet **Manuell avresa** i Home Assistant. Det är en enskild avresa med ett bestämt datum, inte ett automatiskt återkommande dagligt schema. Den manuella tiden rensas automatiskt när den har passerat. Knappen **Rensa manuell avresa** tar bort den tidigare om planerna ändras.
-
-Bilens entitet **Status** visar planeringen. Dess attribut innehåller bland annat nästa avresa, planerad start, temperatur, gångtid, källa och eventuellt fel. Du hittar entiteterna via bilens enhet under **Inställningar → Enheter och tjänster**.
-
-## Veckoschema
-
-Varje bil får ett eget schema med ett klockslag och ett på/av-reglage för var och en av veckans sju dagar, exempelvis **Måndag avresetid** och **Måndag veckoschema**. Dagarna är avstängda från början och standardtiden är 07.00. Aktivera de dagar bilen ska användas och ställ in avresetiden för respektive dag. Tiderna tolkas i Home Assistants lokala tidszon. Engångsavresa och kalender kan användas tillsammans med veckoschemat; den närmaste framtida avresan styr.
-
-Vid övergången till sommartid hoppas en veckotid som inte finns över den dagen. Vid övergången till vintertid, när en lokal tid förekommer två gånger, används den första förekomsten.
-
-## Temperatur och gångtid
-
-Standardvärdena kan justeras för respektive bil, mellan 0 och 240 minuter:
-
-| Utetemperatur | Gångtid före avresa |
-| --- | ---: |
-| −15 °C eller kallare | 90 minuter |
-| Över −15 °C till och med 0 °C | 60 minuter |
-| Över 0 °C och under 10 °C | 30 minuter |
-| 10 °C eller varmare | 0 minuter |
-
-Tiderna är ett utgångsläge, inte en garanti för att motorn har uppnått en viss temperatur. Behovet beror bland annat på motor, värmare och väder. Följ rekommendationerna från bilens och värmarens tillverkare. [Energimyndigheten](https://www.energimyndigheten.se/effektiv-energianvandning/flerbostadshus/dialog-med-boende/) anger att det oftast räcker att starta motorvärmaren en timme före avresa; tabellen ovan är integrationens valbara standard, inte en tabell från myndigheten.
-
-## Så fungerar styrningen vid ändringar och fel
-
-- Integrationen kontrollerar planeringen ungefär en gång i minuten och försöker läsa kalendern var femte minut. Om läsningen misslyckas, till exempel för att kalendern inte är klar vid uppstart, försöker den igen ungefär en gång i minuten. Ändringar i Google Kalender kan dessutom dröja innan de är tillgängliga i Home Assistant.
-- Om utetemperaturen eller brytaren är otillgänglig kan en ny uppvärmning inte starta. Fel visas i bilens status. Om kalendern inte kan läsas startas ingen ny kalenderstyrd uppvärmning utifrån ett gammalt kalendersvar; manuella avresor och veckoschema kan fortfarande användas. Status kan visa kalenderfel även när en manuell avresa fungerar.
-- Om integrationen redan har startat värmaren fortsätter den att försöka stänga av vid avresan, även om ett senare kalenderanrop misslyckas. Den försöker också stänga av om den aktuella avresan tas bort. Som skydd finns en maximal sammanhängande gångtid på fyra timmar för en uppvärmning som integrationen har startat.
-- Om brytaren redan var påslagen när en uppvärmning skulle ha börjat tar integrationen inte över den och stänger inte av den för den avresan. Om du själv stänger av brytaren under en pågående uppvärmning startar integrationen inte om den för samma avresa.
-
-## Drift och elsäkerhet
-
-- Integrationen har testats med isolerade tester men är ännu inte verifierad i en riktig Home Assistant- och Zigbee-miljö.
-- Använd brytare, uttag, kablar och anslutningar som är avsedda för miljön och för värmarens belastning. Följ utrustningens anvisningar.
-- Home Assistant, Zigbee-nätverket och brytaren måste fungera och kunna kommunicera för att en planerad avstängning ska nå fram. Avbrott kan göra att värmaren förblir påslagen.
-- Använd gärna en separat, oberoende maxtimer som kan bryta strömmen även om Home Assistant eller Zigbee slutar fungera.
-- Prova varje bils konfiguration och kontrollera både start och avstängning innan lösningen används utan uppsikt. Kontrollera även att rätt utetemperatur och kalender visas.
+[MIT](LICENSE).

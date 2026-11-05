@@ -28,7 +28,7 @@ class ManualDeparture(DateTimeEntity, RestoreEntity):
     """An optional one-off departure, persisted by the controller."""
 
     _attr_has_entity_name = True
-    _attr_name = "Manuell avresa"
+    _attr_translation_key = "manual_departure"
     _attr_icon = "mdi:calendar-clock"
 
     def __init__(self, entry: ConfigEntry, controller) -> None:

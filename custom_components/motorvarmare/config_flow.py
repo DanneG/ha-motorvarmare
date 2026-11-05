@@ -13,17 +13,11 @@ from homeassistant.helpers import selector
 
 from .const import (
     CONF_CALENDAR,
-    CONF_DURATION_COLD,
-    CONF_DURATION_COOL,
-    CONF_DURATION_WARM,
     CONF_EVENT_KEYWORDS,
     CONF_EVENT_TITLES,
     CONF_SWITCH,
     CONF_TAG,
     CONF_TEMPERATURE,
-    DEFAULT_DURATION_COLD,
-    DEFAULT_DURATION_COOL,
-    DEFAULT_DURATION_WARM,
     DOMAIN,
 )
 
@@ -49,12 +43,6 @@ def _schema(values: dict[str, Any] | None = None) -> vol.Schema:
                 if value else vol.Optional(key))
 
     multiline = selector.TextSelector(selector.TextSelectorConfig(multiline=True))
-    minutes = selector.NumberSelector(
-        selector.NumberSelectorConfig(
-            min=0, max=240, step=1, mode=selector.NumberSelectorMode.BOX,
-            unit_of_measurement="min",
-        )
-    )
     return vol.Schema(
         {
             vol.Required(CONF_NAME, default=values.get(CONF_NAME, "")): str,
@@ -67,9 +55,6 @@ def _schema(values: dict[str, Any] | None = None) -> vol.Schema:
             ),
             text_field(CONF_EVENT_TITLES): multiline,
             text_field(CONF_EVENT_KEYWORDS): multiline,
-            vol.Required(CONF_DURATION_WARM, default=values.get(CONF_DURATION_WARM, DEFAULT_DURATION_WARM)): minutes,
-            vol.Required(CONF_DURATION_COOL, default=values.get(CONF_DURATION_COOL, DEFAULT_DURATION_COOL)): minutes,
-            vol.Required(CONF_DURATION_COLD, default=values.get(CONF_DURATION_COLD, DEFAULT_DURATION_COLD)): minutes,
         }
     )
 

@@ -3,17 +3,14 @@
     "step": {
       "user": {
         "title": "Add a car",
-        "description": "Configure one car. Add the integration again for another car.",
+        "description": "Configure one car. Add the integration again for another car. Runtime is calculated automatically: 30 − 1.5 × the outdoor temperature in °C, between 0 and 240 minutes.",
         "data": {
           "name": "Car name",
           "switch_entity": "Heater switch",
           "temperature_entity": "Outdoor temperature sensor",
           "calendar_entity": "Calendar (optional)",
           "event_titles": "Exact event titles (optional)",
-          "event_keywords": "Words or tags (optional)",
-          "duration_warm": "Minutes above 0 °C and below 10 °C",
-          "duration_cool": "Minutes above −15 °C to 0 °C",
-          "duration_cold": "Minutes at −15 °C or colder"
+          "event_keywords": "Words or tags (optional)"
         },
         "data_description": {
           "event_titles": "Enter complete event titles, one per line or separated by commas. For example: TILL JOBBET. Spaces are allowed.",
@@ -32,17 +29,14 @@
     "step": {
       "init": {
         "title": "Edit car settings",
-        "description": "Choose the car's switch, outdoor sensor and optional calendar. Clear the calendar field to disable calendar departures.",
+        "description": "Choose the car's switch, outdoor sensor and optional calendar. Clear the calendar field to disable calendar departures. Runtime is calculated automatically: 30 − 1.5 × the outdoor temperature in °C, between 0 and 240 minutes.",
         "data": {
           "name": "Car name",
           "switch_entity": "Heater switch",
           "temperature_entity": "Outdoor temperature sensor",
           "calendar_entity": "Calendar (optional)",
           "event_titles": "Exact event titles (optional)",
-          "event_keywords": "Words or tags (optional)",
-          "duration_warm": "Minutes above 0 °C and below 10 °C",
-          "duration_cool": "Minutes above −15 °C to 0 °C",
-          "duration_cold": "Minutes at −15 °C or colder"
+          "event_keywords": "Words or tags (optional)"
         },
         "data_description": {
           "event_titles": "Enter complete event titles, one per line or separated by commas. For example: TILL JOBBET. Spaces are allowed.",
@@ -55,6 +49,135 @@
       "invalid_tag": "Enter a non-empty calendar tag.",
       "missing_calendar_rule": "Enter a title, word or tag for the selected calendar.",
       "duplicate_switch": "This switch is already used by another car."
+    }
+  },
+  "entity": {
+    "calendar": {
+      "departure_calendar": {
+        "name": "Departure calendar"
+      }
+    },
+    "datetime": {
+      "manual_departure": {
+        "name": "Manual departure"
+      }
+    },
+    "button": {
+      "clear_departure": {
+        "name": "Clear manual departure"
+      },
+      "start_now": {
+        "name": "Start now"
+      },
+      "stop_now": {
+        "name": "Stop"
+      }
+    },
+    "sensor": {
+      "status": {
+        "name": "Status",
+        "state": {
+          "waiting": "Waiting",
+          "error": "Error",
+          "heating": "Heating",
+          "stopped": "Stopped",
+          "no_departure": "No departure",
+          "no_heating_needed": "No heating needed",
+          "waiting_to_start": "Waiting to start",
+          "already_on": "Switch was already on",
+          "manually_stopped": "Manually stopped for this departure"
+        }
+      }
+    },
+    "time": {
+      "weekly_time_monday": {
+        "name": "Monday departure time"
+      },
+      "weekly_time_tuesday": {
+        "name": "Tuesday departure time"
+      },
+      "weekly_time_wednesday": {
+        "name": "Wednesday departure time"
+      },
+      "weekly_time_thursday": {
+        "name": "Thursday departure time"
+      },
+      "weekly_time_friday": {
+        "name": "Friday departure time"
+      },
+      "weekly_time_saturday": {
+        "name": "Saturday departure time"
+      },
+      "weekly_time_sunday": {
+        "name": "Sunday departure time"
+      }
+    },
+    "switch": {
+      "weekly_enabled_monday": {
+        "name": "Monday weekly schedule"
+      },
+      "weekly_enabled_tuesday": {
+        "name": "Tuesday weekly schedule"
+      },
+      "weekly_enabled_wednesday": {
+        "name": "Wednesday weekly schedule"
+      },
+      "weekly_enabled_thursday": {
+        "name": "Thursday weekly schedule"
+      },
+      "weekly_enabled_friday": {
+        "name": "Friday weekly schedule"
+      },
+      "weekly_enabled_saturday": {
+        "name": "Saturday weekly schedule"
+      },
+      "weekly_enabled_sunday": {
+        "name": "Sunday weekly schedule"
+      }
+    }
+  },
+  "exceptions": {
+    "switch_unavailable": {
+      "message": "The switch is unavailable."
+    },
+    "already_on": {
+      "message": "The heater is already on or already controlled by the integration."
+    },
+    "temperature_unavailable": {
+      "message": "The outdoor temperature is unavailable."
+    },
+    "zero_runtime": {
+      "message": "The formula gives no heating time at this temperature."
+    },
+    "turn_on_failed": {
+      "message": "Could not turn on the switch."
+    },
+    "not_owned": {
+      "message": "The integration is not controlling an active heating session."
+    },
+    "turn_off_failed": {
+      "message": "Could not turn off the switch; retrying."
+    },
+    "departure_nonexistent_time": {
+      "message": "This time does not exist because of the transition to daylight saving time. Choose another time."
+    },
+    "departure_invalid": {
+      "message": "Choose a date and time for the departure."
+    },
+    "departure_past": {
+      "message": "The departure must be in the future."
+    },
+    "departure_not_found": {
+      "message": "The departure could not be found."
+    },
+    "recurring_unsupported": {
+      "message": "Use the weekly schedule for recurring departures."
+    },
+    "timed_departure_required": {
+      "message": "Choose a date and time, not an all-day event."
+    },
+    "timezone_required": {
+      "message": "The departure time must include a time zone."
     }
   }
 }

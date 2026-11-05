@@ -12,7 +12,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .time import WEEKDAYS
+from .time import WEEKDAYS, WEEKDAY_KEYS
 
 
 async def async_setup_entry(
@@ -36,7 +36,7 @@ class WeeklyDepartureSwitch(SwitchEntity):
         self.controller = controller
         self.day = day
         self._signal = f"{DOMAIN}_{entry.entry_id}"
-        self._attr_name = f"{name} veckoschema"
+        self._attr_translation_key = f"weekly_enabled_{WEEKDAY_KEYS[day]}"
         self._attr_unique_id = f"{entry.entry_id}_weekly_enabled_{day}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)}, name=entry.title

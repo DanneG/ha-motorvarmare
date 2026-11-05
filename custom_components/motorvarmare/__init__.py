@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant
 from .const import DOMAIN
 from .controller import HeaterController
 
-PLATFORMS = [Platform.DATETIME, Platform.SENSOR, Platform.BUTTON, Platform.TIME, Platform.SWITCH]
+PLATFORMS = [Platform.DATETIME, Platform.SENSOR, Platform.BUTTON, Platform.TIME, Platform.SWITCH, Platform.CALENDAR]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

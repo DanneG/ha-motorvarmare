@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -11,6 +11,19 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers import entity_registry as er
 
 from .const import DOMAIN
+from .controller import duration_for_temperature
+
+_STATUS_KEYS = {
+    "Väntar": "waiting",
+    "Fel": "error",
+    "Värmer": "heating",
+    "Avstängd": "stopped",
+    "Ingen avresa": "no_departure",
+    "Ingen uppvärmning behövs": "no_heating_needed",
+    "Väntar på start": "waiting_to_start",
+    "Brytaren var redan på": "already_on",
+    "Manuellt avstängd för denna avresa": "manually_stopped",
+}
 
 
 async def async_setup_entry(
@@ -25,7 +38,9 @@ class HeaterStatus(SensorEntity):
     """Show the current decision and the information behind it."""
 
     _attr_has_entity_name = True
-    _attr_name = "Status"
+    _attr_translation_key = "status"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = list(_STATUS_KEYS.values())
     _attr_icon = "mdi:car-defrost-front"
 
     def __init__(self, entry: ConfigEntry, controller) -> None:
@@ -41,7 +56,7 @@ class HeaterStatus(SensorEntity):
     @property
     def native_value(self) -> str | None:
         """Return the human-readable status."""
-        return self.controller.status
+        return _STATUS_KEYS.get(self.controller.status, "error")
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -57,13 +72,22 @@ class HeaterStatus(SensorEntity):
             "planned_start": controller.planned_start,
             "temperature": controller.temperature,
             "duration_minutes": controller.duration_minutes,
+            "current_duration_minutes": (
+                duration_for_temperature(controller.temperature)
+                if controller.temperature is not None else None
+            ),
             "source": controller.source,
             "error": controller.error,
             "owned": controller.owned,
+            "active_until": controller.active_until,
+            "schedule_7_days": controller.schedule_7_days,
             # Entity-registry lookups survive renames and keep cars separate.
             "control_entities": {
                 "manual_departure": entity_id("datetime", "manual_departure"),
                 "clear_departure": entity_id("button", "clear_departure"),
+                "start_now": entity_id("button", "start_now"),
+                "stop_now": entity_id("button", "stop_now"),
+                "calendar": entity_id("calendar", "departure_calendar"),
                 "heater_switch": controller.config.get("switch_entity"),
                 "weekly_times": [entity_id("time", f"weekly_time_{day}") for day in range(7)],
                 "weekly_enabled": [entity_id("switch", f"weekly_enabled_{day}") for day in range(7)],

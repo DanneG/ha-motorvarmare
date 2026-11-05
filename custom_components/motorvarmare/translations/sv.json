@@ -3,17 +3,14 @@
     "step": {
       "user": {
         "title": "Lägg till en bil",
-        "description": "Ställ in en bil. Lägg till integrationen igen för ytterligare en bil.",
+        "description": "Ställ in en bil. Lägg till integrationen igen för ytterligare en bil. Gångtiden beräknas automatiskt: 30 − 1,5 × utetemperaturen i °C, mellan 0 och 240 minuter.",
         "data": {
           "name": "Bilens namn",
           "switch_entity": "Brytare för motorvärmaren",
           "temperature_entity": "Sensor för utetemperatur",
           "calendar_entity": "Kalender (valfritt)",
           "event_titles": "Exakta händelsetitlar (valfritt)",
-          "event_keywords": "Ord eller taggar (valfritt)",
-          "duration_warm": "Minuter över 0 °C och under 10 °C",
-          "duration_cool": "Minuter över −15 °C till och med 0 °C",
-          "duration_cold": "Minuter vid −15 °C eller kallare"
+          "event_keywords": "Ord eller taggar (valfritt)"
         },
         "data_description": {
           "event_titles": "Ange fullständiga händelsetitlar, en per rad eller separerade med kommatecken. Exempel: TILL JOBBET. Mellanslag får ingå.",
@@ -32,17 +29,14 @@
     "step": {
       "init": {
         "title": "Ändra bilens inställningar",
-        "description": "Välj brytare, utetemperatursensor och eventuellt kalender. Töm kalenderfältet för att stänga av kalenderstyrning.",
+        "description": "Välj brytare, utetemperatursensor och eventuellt kalender. Töm kalenderfältet för att stänga av kalenderstyrning. Gångtiden beräknas automatiskt: 30 − 1,5 × utetemperaturen i °C, mellan 0 och 240 minuter.",
         "data": {
           "name": "Bilens namn",
           "switch_entity": "Brytare för motorvärmaren",
           "temperature_entity": "Sensor för utetemperatur",
           "calendar_entity": "Kalender (valfritt)",
           "event_titles": "Exakta händelsetitlar (valfritt)",
-          "event_keywords": "Ord eller taggar (valfritt)",
-          "duration_warm": "Minuter över 0 °C och under 10 °C",
-          "duration_cool": "Minuter över −15 °C till och med 0 °C",
-          "duration_cold": "Minuter vid −15 °C eller kallare"
+          "event_keywords": "Ord eller taggar (valfritt)"
         },
         "data_description": {
           "event_titles": "Ange fullständiga händelsetitlar, en per rad eller separerade med kommatecken. Exempel: TILL JOBBET. Mellanslag får ingå.",
@@ -55,6 +49,135 @@
       "invalid_tag": "Ange en kalenderhändelsetagg.",
       "missing_calendar_rule": "Ange minst en titel, ett ord eller en tagg för den valda kalendern.",
       "duplicate_switch": "Brytaren används redan av en annan bil."
+    }
+  },
+  "entity": {
+    "calendar": {
+      "departure_calendar": {
+        "name": "Avresekalender"
+      }
+    },
+    "datetime": {
+      "manual_departure": {
+        "name": "Manuell avresa"
+      }
+    },
+    "button": {
+      "clear_departure": {
+        "name": "Rensa manuell avresa"
+      },
+      "start_now": {
+        "name": "Starta nu"
+      },
+      "stop_now": {
+        "name": "Stoppa"
+      }
+    },
+    "sensor": {
+      "status": {
+        "name": "Status",
+        "state": {
+          "waiting": "Väntar",
+          "error": "Fel",
+          "heating": "Värmer",
+          "stopped": "Avstängd",
+          "no_departure": "Ingen avresa",
+          "no_heating_needed": "Ingen uppvärmning behövs",
+          "waiting_to_start": "Väntar på start",
+          "already_on": "Brytaren var redan på",
+          "manually_stopped": "Manuellt avstängd för denna avresa"
+        }
+      }
+    },
+    "time": {
+      "weekly_time_monday": {
+        "name": "Måndag avresetid"
+      },
+      "weekly_time_tuesday": {
+        "name": "Tisdag avresetid"
+      },
+      "weekly_time_wednesday": {
+        "name": "Onsdag avresetid"
+      },
+      "weekly_time_thursday": {
+        "name": "Torsdag avresetid"
+      },
+      "weekly_time_friday": {
+        "name": "Fredag avresetid"
+      },
+      "weekly_time_saturday": {
+        "name": "Lördag avresetid"
+      },
+      "weekly_time_sunday": {
+        "name": "Söndag avresetid"
+      }
+    },
+    "switch": {
+      "weekly_enabled_monday": {
+        "name": "Måndag veckoschema"
+      },
+      "weekly_enabled_tuesday": {
+        "name": "Tisdag veckoschema"
+      },
+      "weekly_enabled_wednesday": {
+        "name": "Onsdag veckoschema"
+      },
+      "weekly_enabled_thursday": {
+        "name": "Torsdag veckoschema"
+      },
+      "weekly_enabled_friday": {
+        "name": "Fredag veckoschema"
+      },
+      "weekly_enabled_saturday": {
+        "name": "Lördag veckoschema"
+      },
+      "weekly_enabled_sunday": {
+        "name": "Söndag veckoschema"
+      }
+    }
+  },
+  "exceptions": {
+    "switch_unavailable": {
+      "message": "Brytaren är inte tillgänglig."
+    },
+    "already_on": {
+      "message": "Värmaren är redan på eller styrs redan av integrationen."
+    },
+    "temperature_unavailable": {
+      "message": "Utetemperaturen är inte tillgänglig."
+    },
+    "zero_runtime": {
+      "message": "Formeln ger ingen uppvärmning vid den här temperaturen."
+    },
+    "turn_on_failed": {
+      "message": "Kunde inte slå på brytaren."
+    },
+    "not_owned": {
+      "message": "Integrationen styr ingen pågående uppvärmning."
+    },
+    "turn_off_failed": {
+      "message": "Kunde inte stänga av brytaren; försöker igen."
+    },
+    "departure_invalid": {
+      "message": "Ange ett datum och klockslag för avresan."
+    },
+    "departure_nonexistent_time": {
+      "message": "Klockslaget finns inte på grund av övergång till sommartid. Välj en annan tid."
+    },
+    "departure_past": {
+      "message": "Avresan måste vara i framtiden."
+    },
+    "departure_not_found": {
+      "message": "Avresan kunde inte hittas."
+    },
+    "recurring_unsupported": {
+      "message": "Återkommande avresor stöds via veckoschemat."
+    },
+    "timed_departure_required": {
+      "message": "Välj ett datum och klockslag, inte en heldagshändelse."
+    },
+    "timezone_required": {
+      "message": "Avresetiden måste innehålla en tidszon."
     }
   }
 }

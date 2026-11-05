@@ -100,10 +100,10 @@ def new_controller(hass, calendar=""):
 
 class HelperTests(unittest.TestCase):
     def test_temperature_boundaries(self):
-        for temperature, expected in [(-20, 90), (-15, 90), (-14.9, 60),
-                                      (0, 60), (0.1, 30), (9.9, 30), (10, 0)]:
+        for temperature, expected in [(-200, 240), (-20, 60), (-15, 53), (-14.9, 53),
+                                      (0, 30), (0.1, 30), (9.9, 16), (10, 15), (20, 0), (25, 0)]:
             with self.subTest(temperature=temperature):
-                self.assertEqual(controller.duration_for_temperature(temperature, 30, 60, 90), expected)
+                self.assertEqual(controller.duration_for_temperature(temperature), expected)
 
     def test_tag_matching_case_and_suffix(self):
         self.assertTrue(controller.tagged("Kör #BIL1!", "#bil1"))
@@ -186,13 +186,51 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(results[1], (self.now + timedelta(hours=1), "Veckoschema"))
 
     @sync_test
+    async def test_multiple_local_departures_persist_and_can_be_removed_individually(self):
+        first = self.now + timedelta(hours=1)
+        second = self.now + timedelta(hours=3)
+        first_id = await self.item.async_add_local_departure(first, "Jobb")
+        second_id = await self.item.async_add_local_departure(second, "Ärende")
+        self.assertNotEqual(first_id, second_id)
+        replacement = new_controller(self.hass)
+        await replacement.async_load()
+        self.assertEqual([item["uid"] for item in replacement.local_departures], [first_id, second_id])
+        schedule = replacement.schedule_7_days
+        self.assertEqual([item["departure"] for item in schedule], [first.isoformat(), second.isoformat()])
+        self.assertEqual(schedule[0]["start"], (first - timedelta(minutes=30)).isoformat())
+        self.assertEqual(schedule[1]["summary"], "Ärende")
+        self.assertTrue(all(item["removable"] for item in schedule))
+        await replacement.async_delete_local_departure(first_id)
+        self.assertEqual([item["uid"] for item in replacement.local_departures], [second_id])
+        with self.assertRaisesRegex(ValueError, "departure_not_found"):
+            await replacement.async_delete_local_departure(first_id)
+
+    @sync_test
+    async def test_local_calendar_rejects_past_and_deleting_active_departure_stops(self):
+        with self.assertRaisesRegex(ValueError, "departure_past"):
+            await self.item.async_add_local_departure(self.now - timedelta(minutes=1))
+        event_id = await self.item.async_add_local_departure(self.now + timedelta(minutes=5))
+        self.assertTrue(self.item.owned)
+        await self.item.async_delete_local_departure(event_id)
+        self.assertFalse(self.item.owned)
+        self.assertEqual(self.hass.states["switch.heater"].state, "off")
+
+    @sync_test
+    async def test_zero_duration_has_no_planned_start(self):
+        self.hass.states["sensor.outside"].state = "20"
+        await self.item.async_add_local_departure(self.now + timedelta(hours=2))
+        self.assertEqual(self.item.schedule_7_days[0]["duration_minutes"], 0)
+        self.assertIsNone(self.item.schedule_7_days[0]["start"])
+        self.assertNotIn(("switch", "turn_on"), self.hass.calls)
+
+    @sync_test
     async def test_manual_start_then_stop_and_persist(self):
-        self.item.manual_departure = self.now + timedelta(minutes=45)
+        self.item.manual_departure = self.now + timedelta(minutes=25)
         await self.item.async_update()
         self.assertTrue(self.item.owned)
         self.assertEqual(self.hass.states["switch.heater"].state, "on")
         self.assertTrue(next(iter(self.hass.storage.values()))["owned"])
-        self.now += timedelta(minutes=46)
+        self.now += timedelta(minutes=26)
         await self.item.async_update()
         self.assertFalse(self.item.owned)
         self.assertEqual(self.hass.states["switch.heater"].state, "off")
@@ -363,11 +401,227 @@ class ControllerTests(unittest.TestCase):
     @sync_test
     async def test_fahrenheit_temperature_is_converted(self):
         self.hass.states["sensor.outside"] = State("32", "°F")
-        self.item.manual_departure = self.now + timedelta(minutes=45)
+        self.item.manual_departure = self.now + timedelta(minutes=25)
         await self.item.async_update()
         self.assertEqual(self.item.temperature, 0)
-        self.assertEqual(self.item.duration_minutes, 60)
+        self.assertEqual(self.item.duration_minutes, 30)
         self.assertTrue(self.item.owned)
+
+    @sync_test
+    async def test_start_now_uses_formula_and_stops_after_restart(self):
+        self.hass.states["sensor.outside"] = State("-10", "°C")
+        await self.item.async_start_now()
+        self.assertTrue(self.item.owned)
+        self.assertEqual(self.item.active_until, self.now + timedelta(minutes=45))
+        replacement = new_controller(self.hass)
+        await replacement.async_load()
+        self.assertTrue(replacement.owned)
+        self.now += timedelta(minutes=20)
+        await replacement.async_update()
+        self.assertTrue(replacement.owned)
+        self.assertEqual(self.hass.states["switch.heater"].state, "on")
+        self.now += timedelta(minutes=25)
+        await replacement.async_update()
+        self.assertFalse(replacement.owned)
+        self.assertEqual(self.hass.states["switch.heater"].state, "off")
+
+    @sync_test
+    async def test_start_now_rejects_existing_on_unavailable_and_zero_duration(self):
+        self.hass.states["switch.heater"].state = "on"
+        with self.assertRaisesRegex(ValueError, "already_on"):
+            await self.item.async_start_now()
+        self.assertFalse(self.item.owned)
+        self.hass.states["switch.heater"].state = "off"
+        self.hass.states["sensor.outside"].state = "unavailable"
+        with self.assertRaisesRegex(ValueError, "temperature_unavailable"):
+            await self.item.async_start_now()
+        self.hass.states["sensor.outside"].state = "20"
+        with self.assertRaisesRegex(ValueError, "zero_runtime"):
+            await self.item.async_start_now()
+        self.assertNotIn(("switch", "turn_on"), self.hass.calls)
+
+    @sync_test
+    async def test_start_now_does_not_leave_ownership_when_start_fails_off(self):
+        self.hass.fail.add(("switch", "turn_on"))
+        with self.assertRaisesRegex(ValueError, "turn_on_failed"):
+            await self.item.async_start_now()
+        self.assertFalse(self.item.owned)
+        self.assertEqual(self.hass.states["switch.heater"].state, "off")
+
+    @sync_test
+    async def test_stop_now_prevents_restarting_scheduled_run(self):
+        self.item.manual_departure = self.now + timedelta(minutes=10)
+        await self.item.async_update()
+        await self.item.async_stop_now()
+        self.assertFalse(self.item.owned)
+        await self.item.async_update()
+        self.assertEqual(self.hass.states["switch.heater"].state, "off")
+        self.assertEqual(self.hass.calls.count(("switch", "turn_on")), 1)
+
+    @sync_test
+    async def test_stop_suppresses_simultaneous_sources_and_overlapping_later_departure(self):
+        self.item = new_controller(self.hass, "calendar.test")
+        first = self.now + timedelta(minutes=20)
+        second = self.now + timedelta(minutes=40)
+        later = self.now + timedelta(minutes=100)
+        self.item.manual_departure = first
+        self.item.weekly_enabled[0] = True
+        self.item.weekly_times[0] = time(6, 20)
+        self.hass.events = [
+            {"start": first.isoformat(), "summary": "#bil1"},
+            {"start": second.isoformat(), "summary": "#bil1"},
+            {"start": later.isoformat(), "summary": "#bil1"},
+        ]
+        await self.item.async_add_local_departure(first)
+        self.assertTrue(self.item.owned)
+        await self.item.async_stop_now()
+        schedule = self.item.schedule_7_days
+        self.assertTrue(all(row["suppressed"] for row in schedule if row["departure"] in (first.isoformat(), second.isoformat())))
+        self.assertFalse(next(row for row in schedule if row["departure"] == later.isoformat())["suppressed"])
+        replacement = new_controller(self.hass, "calendar.test")
+        await replacement.async_load()
+        self.now += timedelta(minutes=21)
+        await replacement.async_update()
+        self.assertFalse(replacement.owned)
+        self.assertEqual(self.hass.calls.count(("switch", "turn_on")), 1)
+        self.now += timedelta(minutes=20)
+        await replacement.async_update()
+        self.assertFalse(replacement.owned)
+        self.now += timedelta(minutes=30)
+        await replacement.async_update()
+        self.assertTrue(replacement.owned)
+        self.assertEqual(self.hass.calls.count(("switch", "turn_on")), 2)
+
+    @sync_test
+    async def test_temperature_drop_extends_suppression_to_newly_overlapping_window(self):
+        first = self.now + timedelta(minutes=20)
+        second = self.now + timedelta(minutes=65)
+        await self.item.async_add_local_departure(first)
+        await self.item.async_add_local_departure(second)
+        await self.item.async_stop_now()
+        self.assertFalse(next(row for row in self.item.schedule_7_days if row["departure"] == second.isoformat())["suppressed"])
+        # At 0 C the next start has a gap; at -10 C it touches the first end.
+        self.hass.states["sensor.outside"].state = "-10"
+        self.now += timedelta(minutes=21)
+        await self.item.async_update()
+        self.assertTrue(next(row for row in self.item.schedule_7_days if row["departure"] == second.isoformat())["suppressed"])
+        self.assertFalse(self.item.owned)
+        self.assertEqual(self.hass.calls.count(("switch", "turn_on")), 1)
+
+    @sync_test
+    async def test_physical_switch_off_suppresses_overlapping_schedules(self):
+        first = self.now + timedelta(minutes=20)
+        second = self.now + timedelta(minutes=40)
+        await self.item.async_add_local_departure(first)
+        await self.item.async_add_local_departure(second)
+        self.assertTrue(self.item.owned)
+        self.hass.states["switch.heater"].state = "off"
+        await self.item.async_update()
+        self.now += timedelta(minutes=21)
+        await self.item.async_update()
+        self.assertFalse(self.item.owned)
+        self.assertEqual(self.hass.calls.count(("switch", "turn_on")), 1)
+
+    @sync_test
+    async def test_calendar_outage_keeps_overlapping_departure_suppressed_after_recovery(self):
+        self.item = new_controller(self.hass, "calendar.test")
+        first = self.now + timedelta(minutes=20)
+        second = self.now + timedelta(minutes=40)
+        self.hass.events = [{"start": moment.isoformat(), "summary": "#bil1"} for moment in (first, second)]
+        await self.item.async_update()
+        self.assertTrue(self.item.owned)
+        self.hass.fail.add(("calendar", "get_events"))
+        self.item._calendar_checked = float("-inf")
+        await self.item.async_update()
+        self.assertFalse(self.item._calendar_ok)
+        await self.item.async_stop_now()
+        self.hass.fail.clear()
+        self.item._calendar_checked = float("-inf")
+        self.now += timedelta(minutes=21)
+        await self.item.async_update()
+        self.assertTrue(self.item._calendar_ok)
+        self.assertFalse(self.item.owned)
+        self.assertEqual(self.hass.calls.count(("switch", "turn_on")), 1)
+
+    @sync_test
+    async def test_manual_start_stop_also_suppresses_overlapping_future_departure(self):
+        departure = self.now + timedelta(minutes=40)
+        await self.item.async_add_local_departure(departure)
+        await self.item.async_start_now()
+        await self.item.async_stop_now()
+        self.now += timedelta(minutes=11)
+        await self.item.async_update()
+        self.assertFalse(self.item.owned)
+        self.assertEqual(self.hass.calls.count(("switch", "turn_on")), 1)
+
+    @sync_test
+    async def test_readding_stopped_local_departure_is_explicit_rescheduling(self):
+        departure = self.now + timedelta(minutes=10)
+        first = await self.item.async_add_local_departure(departure)
+        await self.item.async_stop_now()
+        await self.item.async_delete_local_departure(first)
+        await self.item.async_add_local_departure(departure)
+        self.assertTrue(self.item.owned)
+        self.assertEqual(self.hass.calls.count(("switch", "turn_on")), 2)
+
+    @sync_test
+    async def test_new_overlapping_departure_is_not_hidden_by_stopped_earlier_event(self):
+        first = self.now + timedelta(minutes=10)
+        new_departure = self.now + timedelta(minutes=15)
+        await self.item.async_add_local_departure(first)
+        await self.item.async_stop_now()
+        await self.item.async_add_local_departure(new_departure)
+        self.assertTrue(self.item.owned)
+        self.assertEqual(self.item._active_departure, new_departure)
+        self.assertEqual(self.hass.calls.count(("switch", "turn_on")), 2)
+        schedule = self.item.schedule_7_days
+        self.assertTrue(next(row for row in schedule if row["departure"] == first.isoformat())["suppressed"])
+        self.assertFalse(next(row for row in schedule if row["departure"] == new_departure.isoformat())["suppressed"])
+
+    @sync_test
+    async def test_legacy_single_suppression_is_loaded_and_honoured(self):
+        departure = self.now + timedelta(minutes=10)
+        self.hass.storage["motorvarmare.car1"] = {
+            "manual_departure": departure.isoformat(),
+            "suppressed": f"Manuell|{departure.isoformat()}",
+        }
+        await self.item.async_load()
+        await self.item.async_update()
+        self.assertFalse(self.item.owned)
+        self.assertNotIn(("switch", "turn_on"), self.hass.calls)
+
+    @sync_test
+    async def test_stop_now_failure_is_persisted_and_retried_on_restart(self):
+        await self.item.async_start_now()
+        self.hass.fail.add(("switch", "turn_off"))
+        with self.assertRaisesRegex(ValueError, "turn_off_failed"):
+            await self.item.async_stop_now()
+        self.assertTrue(self.item.owned)
+        replacement = new_controller(self.hass)
+        await replacement.async_load()
+        self.assertTrue(replacement._stop_requested)
+        self.hass.fail.clear()
+        await replacement.async_update()
+        self.assertFalse(replacement.owned)
+        self.assertFalse(replacement._stop_requested)
+        self.assertEqual(self.hass.states["switch.heater"].state, "off")
+
+    @sync_test
+    async def test_stop_now_does_not_turn_off_externally_started_switch(self):
+        self.hass.states["switch.heater"].state = "on"
+        with self.assertRaisesRegex(ValueError, "not_owned"):
+            await self.item.async_stop_now()
+        self.assertNotIn(("switch", "turn_off"), self.hass.calls)
+
+    @sync_test
+    async def test_switching_off_start_now_suppresses_due_scheduled_departure(self):
+        self.item.manual_departure = self.now + timedelta(minutes=10)
+        await self.item.async_start_now()
+        self.hass.states["switch.heater"].state = "off"
+        await self.item.async_update()
+        await self.item.async_update()
+        self.assertEqual(self.hass.calls.count(("switch", "turn_on")), 1)
+        self.assertFalse(self.item.owned)
 
     @sync_test
     async def test_owned_departure_restores_after_restart(self):

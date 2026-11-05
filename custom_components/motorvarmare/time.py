@@ -14,6 +14,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DOMAIN
 
 WEEKDAYS = ("Måndag", "Tisdag", "Onsdag", "Torsdag", "Fredag", "Lördag", "Söndag")
+WEEKDAY_KEYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 
 
 async def async_setup_entry(
@@ -37,7 +38,7 @@ class WeeklyDepartureTime(TimeEntity):
         self.controller = controller
         self.day = day
         self._signal = f"{DOMAIN}_{entry.entry_id}"
-        self._attr_name = f"{name} avresetid"
+        self._attr_translation_key = f"weekly_time_{WEEKDAY_KEYS[day]}"
         self._attr_unique_id = f"{entry.entry_id}_weekly_time_{day}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)}, name=entry.title

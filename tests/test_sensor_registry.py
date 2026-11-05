@@ -21,6 +21,7 @@ class SensorEntity:
 
 
 sensor_api.SensorEntity = SensorEntity
+sensor_api.SensorDeviceClass = types.SimpleNamespace(ENUM='enum')
 mocks.module('homeassistant.config_entries').ConfigEntry = type('ConfigEntry', (), {})
 mocks.core.HomeAssistant = type('HomeAssistant', (), {})
 mocks.module('homeassistant.helpers.device_registry').DeviceInfo = lambda **kwargs: kwargs
@@ -49,6 +50,9 @@ class SensorRegistryTests(unittest.TestCase):
         reg = Registry()
         reg.mapping[('datetime', 'motorvarmare', 'car1_manual_departure')] = 'datetime.manual_renamed'
         reg.mapping[('button', 'motorvarmare', 'car1_clear_departure')] = 'button.clear_renamed'
+        reg.mapping[('button', 'motorvarmare', 'car1_start_now')] = 'button.start_renamed'
+        reg.mapping[('button', 'motorvarmare', 'car1_stop_now')] = 'button.stop_renamed'
+        reg.mapping[('calendar', 'motorvarmare', 'car1_departure_calendar')] = 'calendar.departures_renamed'
         reg.mapping[('time', 'motorvarmare', 'car1_weekly_time_0')] = 'time.monday_renamed'
         reg.mapping[('switch', 'motorvarmare', 'car1_weekly_enabled_0')] = 'switch.monday_renamed'
         bus = types.SimpleNamespace()
@@ -56,18 +60,29 @@ class SensorRegistryTests(unittest.TestCase):
         hass = types.SimpleNamespace(registry=reg, bus=bus)
         c = types.SimpleNamespace(next_departure=None, planned_start=None, temperature=0,
                                   duration_minutes=60, source=None, error=None, owned=False,
+                                  active_until=None, schedule_7_days=[], status='Värmer',
                                   config={'switch_entity': 'switch.physical'})
         entry = types.SimpleNamespace(entry_id='car1',title='Bil 1')
         item = sensor.HeaterStatus(entry,c)
         item.hass, item.writes = hass, 0
+        self.assertEqual(item.native_value, 'heating')
+        self.assertEqual(item.extra_state_attributes['current_duration_minutes'], 30)
+        c.temperature = -10
+        self.assertEqual(item.extra_state_attributes['current_duration_minutes'], 45)
+        c.temperature = None
+        self.assertIsNone(item.extra_state_attributes['current_duration_minutes'])
+        reg.calls.clear()
         controls = item.extra_state_attributes['control_entities']
         self.assertEqual(controls['manual_departure'], 'datetime.manual_renamed')
         self.assertEqual(controls['clear_departure'], 'button.clear_renamed')
+        self.assertEqual(controls['start_now'], 'button.start_renamed')
+        self.assertEqual(controls['stop_now'], 'button.stop_renamed')
+        self.assertEqual(controls['calendar'], 'calendar.departures_renamed')
         self.assertEqual(controls['weekly_times'][0], 'time.monday_renamed')
         self.assertEqual(controls['weekly_enabled'][0], 'switch.monday_renamed')
         self.assertEqual(controls['heater_switch'], 'switch.physical')
         self.assertTrue(all(uid.startswith('car1_') for _,_,uid in reg.calls))
-        self.assertEqual(len(reg.calls), 16)
+        self.assertEqual(len(reg.calls), 19)
         await item.async_added_to_hass()
         self.assertEqual(bus.listener[0], 'entity_registry_updated')
         reg.mapping[('time', 'motorvarmare', 'car1_weekly_time_0')] = 'time.renamed_again'
