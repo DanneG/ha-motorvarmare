@@ -24,9 +24,9 @@ To use Google Calendar, first set up the [Google Calendar integration](https://w
 
 ## Heating time and start now
 
-The run time in minutes is **30 − 1.5 × outdoor temperature in °C**. The result is rounded up to a whole minute and limited to 0–240 minutes. Examples: +10 °C → 15 minutes, 0 °C → 30 minutes, −10 °C → 45 minutes, and −20 °C → 60 minutes. At +20 °C or above the result is zero. Fahrenheit sensors are converted to °C first.
+The heating time follows [M Sverige's engine-focused recommendations based on Calix](https://msverige.se/allt-om-bilen/service-och-underhall/motorvarmare/): +10 °C and 0 °C → 60 minutes, −5 °C → 90 minutes, −10 °C → 120 minutes, and −20 °C → 180 minutes. Values between the listed temperatures are calculated by linear interpolation and rounded up to a whole minute. M Sverige does not specify times outside this range: this integration chooses no heating above +10 °C and caps heating at 180 minutes below −20 °C. Fahrenheit sensors are converted to °C first.
 
-**Start now** uses the same formula and turns the heater off when the calculated time has elapsed. **Stop** cancels a heating session controlled by the integration. If the switch is already on when scheduled heating should begin, the integration does not take ownership of it. Fixed run-time settings from earlier versions are no longer used.
+**Start now** uses the same calculation and turns the heater off when the calculated time has elapsed. An active session also stops if the outdoor temperature rises above +10 °C. After a temperature stop, scheduled heating can restart at +9.5 °C or below if the departure is still relevant, including after a Home Assistant restart. A manually started session does not restart automatically. An unavailable temperature reading does not stop a session already running. An optional per-car setting (off by default) keeps scheduled heating on for 30 extra minutes after departure, in addition to the calculated pre-departure heating time. It does not extend **Start now** sessions; the temperature limit still applies. **Stop** cancels a heating session controlled by the integration. If the switch is already on when scheduled heating should begin, the integration does not take ownership of it. Fixed run-time settings from earlier versions are no longer used.
 
 ## Optional power and energy monitoring
 

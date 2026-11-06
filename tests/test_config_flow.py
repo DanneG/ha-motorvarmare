@@ -105,6 +105,12 @@ class ConfigFlowTests(unittest.TestCase):
         self.assertEqual(self.validate(keywords=" , \n ")[0], "missing_calendar_rule")
         self.assertIsNone(self.validate(calendar="")[0])
 
+    def test_post_departure_option_defaults_off_and_preserves_existing_selection(self):
+        for values, expected in [({}, False), ({"post_departure_enabled": True}, True),
+                                 ({"post_departure_enabled": False}, False)]:
+            fields = {key.key: key.kwargs for key in self.flow._schema(values).schema}
+            self.assertIs(fields["post_departure_enabled"]["default"], expected)
+
     def test_legacy_tag_remains_only_while_its_keyword_remains(self):
         error, result = self.validate(keywords="Annat, JOBB\n#bil1", old="jobb")
         self.assertIsNone(error)

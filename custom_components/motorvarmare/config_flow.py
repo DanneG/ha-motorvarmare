@@ -21,6 +21,7 @@ from .const import (
     CONF_POWER_DELAY_MINUTES,
     CONF_POWER_ALARM_ENABLED,
     CONF_NOTIFY_ENTITY,
+    CONF_POST_DEPARTURE_ENABLED,
     DEFAULT_POWER_MIN_WATTS,
     DEFAULT_POWER_DELAY_MINUTES,
     DEFAULT_POWER_ALARM_ENABLED,
@@ -65,6 +66,7 @@ def _schema(values: dict[str, Any] | None = None) -> vol.Schema:
                 selector.EntitySelector(selector.EntitySelectorConfig(domain="switch")),
             vol.Required(CONF_TEMPERATURE, default=values.get(CONF_TEMPERATURE, "")):
                 selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            vol.Required(CONF_POST_DEPARTURE_ENABLED, default=values.get(CONF_POST_DEPARTURE_ENABLED, False)): bool,
             calendar_field: selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="calendar")
             ),

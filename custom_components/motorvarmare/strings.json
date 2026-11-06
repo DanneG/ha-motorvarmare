@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Add a car",
-        "description": "Configure one car. Add the integration again for another car. Runtime is calculated automatically: 30 − 1.5 × the outdoor temperature in °C, between 0 and 240 minutes.",
+        "description": "Configure one car. Add the integration again for another car. Runtime is calculated automatically from the outdoor temperature using engine-focused recommendations: no heating above +10 °C and at most 180 minutes.",
         "data": {
           "name": "Car name",
           "switch_entity": "Heater switch",
@@ -16,6 +16,7 @@
           "power_min_watts": "Low power threshold",
           "power_delay_minutes": "Delay before low-power warning",
           "notify_entity": "Notification recipient (optional)",
+          "post_departure_enabled": "Continue heating for 30 minutes after departure",
           "power_alarm_enabled": "Enable low-power warning"
         },
         "data_description": {
@@ -26,6 +27,7 @@
           "power_min_watts": "Power below this threshold is considered low.",
           "power_delay_minutes": "Warn only after power has remained low for this long while the heater is on.",
           "notify_entity": "Choose a notification entity, such as your phone, to also receive a push notification. When alerts are enabled, Home Assistant always receives a notification.",
+          "post_departure_enabled": "Keep scheduled heating on for 30 minutes after departure, in addition to pre-departure heating. Does not apply to Start now; the temperature limit still applies.",
           "power_alarm_enabled": "Warn when the heater is on but power remains below the threshold. Turning this off does not disable energy monitoring."
         }
       }
@@ -41,7 +43,7 @@
     "step": {
       "init": {
         "title": "Edit car settings",
-        "description": "Choose the car's switch, outdoor sensor and optional calendar. Clear the calendar field to disable calendar departures. Runtime is calculated automatically: 30 − 1.5 × the outdoor temperature in °C, between 0 and 240 minutes.",
+        "description": "Choose the car's switch, outdoor sensor and optional calendar. Clear the calendar field to disable calendar departures. Runtime is calculated automatically from the outdoor temperature using engine-focused recommendations: no heating above +10 °C and at most 180 minutes.",
         "data": {
           "name": "Car name",
           "switch_entity": "Heater switch",
@@ -54,6 +56,7 @@
           "power_min_watts": "Low power threshold",
           "power_delay_minutes": "Delay before low-power warning",
           "notify_entity": "Notification recipient (optional)",
+          "post_departure_enabled": "Continue heating for 30 minutes after departure",
           "power_alarm_enabled": "Enable low-power warning"
         },
         "data_description": {
@@ -64,6 +67,7 @@
           "power_min_watts": "Power below this threshold is considered low.",
           "power_delay_minutes": "Warn only after power has remained low for this long while the heater is on.",
           "notify_entity": "Choose a notification entity, such as your phone, to also receive a push notification. When alerts are enabled, Home Assistant always receives a notification.",
+          "post_departure_enabled": "Keep scheduled heating on for 30 minutes after departure, in addition to pre-departure heating. Does not apply to Start now; the temperature limit still applies.",
           "power_alarm_enabled": "Warn when the heater is on but power remains below the threshold. Turning this off does not disable energy monitoring."
         }
       }
@@ -171,7 +175,7 @@
       "message": "The outdoor temperature is unavailable."
     },
     "zero_runtime": {
-      "message": "The formula gives no heating time at this temperature."
+      "message": "The calculated heating time is zero at this temperature."
     },
     "turn_on_failed": {
       "message": "Could not turn on the switch."

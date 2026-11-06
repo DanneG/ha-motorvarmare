@@ -74,6 +74,8 @@ class HeaterStatus(SensorEntity):
             "planned_start": controller.planned_start,
             "temperature": controller.temperature,
             "duration_minutes": controller.duration_minutes,
+            "temperature_blocked": controller._temperature_blocked,
+            "post_departure_minutes": controller.post_departure_minutes,
             "current_duration_minutes": (
                 duration_for_temperature(controller.temperature)
                 if controller.temperature is not None else None

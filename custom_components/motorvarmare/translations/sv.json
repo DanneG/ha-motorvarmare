@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Lägg till en bil",
-        "description": "Ställ in en bil. Lägg till integrationen igen för ytterligare en bil. Gångtiden beräknas automatiskt: 30 − 1,5 × utetemperaturen i °C, mellan 0 och 240 minuter.",
+        "description": "Ställ in en bil. Lägg till integrationen igen för ytterligare en bil. Gångtiden beräknas automatiskt från utetemperaturen enligt rekommendationer för motorns bästa: ingen uppvärmning över +10 °C och högst 180 minuter.",
         "data": {
           "name": "Bilens namn",
           "switch_entity": "Brytare för motorvärmaren",
@@ -16,6 +16,7 @@
           "power_min_watts": "Gräns för låg effekt",
           "power_delay_minutes": "Väntetid innan larm",
           "notify_entity": "Mottagare för notis (valfritt)",
+          "post_departure_enabled": "Fortsätt värma 30 minuter efter avresa",
           "power_alarm_enabled": "Aktivera larm vid låg effekt"
         },
         "data_description": {
@@ -26,6 +27,7 @@
           "power_min_watts": "Effekt under den här gränsen räknas som låg.",
           "power_delay_minutes": "Larma först när effekten har varit låg så här länge medan värmaren är på.",
           "notify_entity": "Välj en notisentitet, till exempel din telefon, om du även vill få en mobilnotis. När larmet är aktiverat visas alltid en notis i Home Assistant.",
+          "post_departure_enabled": "Låt schemalagd värmning fortsätta i 30 minuter efter avresan, utöver tiden före avresa. Gäller inte Starta nu. Temperaturspärren gäller fortfarande.",
           "power_alarm_enabled": "Varna när värmaren är på men effekten förblir under gränsen. Energiövervakningen fungerar även om larmet är avstängt."
         }
       }
@@ -41,7 +43,7 @@
     "step": {
       "init": {
         "title": "Ändra bilens inställningar",
-        "description": "Välj brytare, utetemperatursensor och eventuellt kalender. Töm kalenderfältet för att stänga av kalenderstyrning. Gångtiden beräknas automatiskt: 30 − 1,5 × utetemperaturen i °C, mellan 0 och 240 minuter.",
+        "description": "Välj brytare, utetemperatursensor och eventuellt kalender. Töm kalenderfältet för att stänga av kalenderstyrning. Gångtiden beräknas automatiskt från utetemperaturen enligt rekommendationer för motorns bästa: ingen uppvärmning över +10 °C och högst 180 minuter.",
         "data": {
           "name": "Bilens namn",
           "switch_entity": "Brytare för motorvärmaren",
@@ -54,6 +56,7 @@
           "power_min_watts": "Gräns för låg effekt",
           "power_delay_minutes": "Väntetid innan larm",
           "notify_entity": "Mottagare för notis (valfritt)",
+          "post_departure_enabled": "Fortsätt värma 30 minuter efter avresa",
           "power_alarm_enabled": "Aktivera larm vid låg effekt"
         },
         "data_description": {
@@ -64,6 +67,7 @@
           "power_min_watts": "Effekt under den här gränsen räknas som låg.",
           "power_delay_minutes": "Larma först när effekten har varit låg så här länge medan värmaren är på.",
           "notify_entity": "Välj en notisentitet, till exempel din telefon, om du även vill få en mobilnotis. När larmet är aktiverat visas alltid en notis i Home Assistant.",
+          "post_departure_enabled": "Låt schemalagd värmning fortsätta i 30 minuter efter avresan, utöver tiden före avresa. Gäller inte Starta nu. Temperaturspärren gäller fortfarande.",
           "power_alarm_enabled": "Varna när värmaren är på men effekten förblir under gränsen. Energiövervakningen fungerar även om larmet är avstängt."
         }
       }
@@ -171,7 +175,7 @@
       "message": "Utetemperaturen är inte tillgänglig."
     },
     "zero_runtime": {
-      "message": "Formeln ger ingen uppvärmning vid den här temperaturen."
+      "message": "Den beräknade uppvärmningstiden är noll vid den här temperaturen."
     },
     "turn_on_failed": {
       "message": "Kunde inte slå på brytaren."

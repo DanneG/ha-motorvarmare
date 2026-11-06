@@ -60,15 +60,21 @@ class SensorRegistryTests(unittest.TestCase):
         hass = types.SimpleNamespace(registry=reg, bus=bus)
         c = types.SimpleNamespace(next_departure=None, planned_start=None, temperature=0,
                                   duration_minutes=60, source=None, error=None, owned=False,
+                                  _temperature_blocked=False, post_departure_minutes=0,
                                   active_until=None, schedule_7_days=[], status='Värmer',
                                   config={'switch_entity': 'switch.physical'})
         entry = types.SimpleNamespace(entry_id='car1',title='Bil 1')
         item = sensor.HeaterStatus(entry,c)
         item.hass, item.writes = hass, 0
         self.assertEqual(item.native_value, 'heating')
-        self.assertEqual(item.extra_state_attributes['current_duration_minutes'], 30)
+        self.assertEqual(item.extra_state_attributes['current_duration_minutes'], 60)
+        self.assertFalse(item.extra_state_attributes['temperature_blocked'])
+        item.controller._temperature_blocked = True
+        self.assertTrue(item.extra_state_attributes['temperature_blocked'])
+        self.assertEqual(item.extra_state_attributes['current_duration_minutes'], 60)
+        item.controller._temperature_blocked = False
         c.temperature = -10
-        self.assertEqual(item.extra_state_attributes['current_duration_minutes'], 45)
+        self.assertEqual(item.extra_state_attributes['current_duration_minutes'], 120)
         c.temperature = None
         self.assertIsNone(item.extra_state_attributes['current_duration_minutes'])
         reg.calls.clear()

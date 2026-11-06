@@ -24,9 +24,9 @@ För Google Kalender: installera först [Google Calendar-integrationen](https://
 
 ## Gångtid och start nu
 
-Gångtiden i minuter beräknas som **30 − 1,5 × utetemperaturen i °C**. Resultatet avrundas uppåt till hela minuter och begränsas till minst 0 och högst 240 minuter. Exempel: +10 °C → 15 minuter, 0 °C → 30 minuter, −10 °C → 45 minuter och −20 °C → 60 minuter. Vid +20 °C eller varmare är resultatet 0 minuter. Temperaturen omvandlas först till °C om sensorn visar °F.
+Gångtiden utgår från [M Sveriges rekommendationer för motorns bästa enligt Calix](https://msverige.se/allt-om-bilen/service-och-underhall/motorvarmare/): +10 °C och 0 °C → 60 minuter, −5 °C → 90 minuter, −10 °C → 120 minuter och −20 °C → 180 minuter. Mellan temperaturerna beräknas tiden linjärt och avrundas uppåt till hela minuter. M Sverige anger inga tider utanför detta intervall: integrationen väljer ingen uppvärmning över +10 °C och begränsar tiden till 180 minuter under −20 °C. Temperaturen omvandlas först till °C om sensorn visar °F.
 
-**Starta nu** använder samma formel och stänger av när den beräknade tiden har gått. **Stoppa** avbryter en uppvärmning som integrationen själv styr. Om brytaren redan är påslagen när den planerade uppvärmningen ska börja tar integrationen inte över den. Gångtider som ställdes in i tidigare versioner används inte längre.
+**Starta nu** använder samma beräkning och stänger av när den beräknade tiden har gått. En pågående värmning stoppas också om utetemperaturen stiger över +10 °C. Efter ett temperaturstopp kan schemalagd värmning starta igen vid +9,5 °C eller kallare om avresan fortfarande är aktuell, även efter omstart av Home Assistant. En manuellt startad värmning startar inte om automatiskt. En tillfälligt otillgänglig temperatursensor stoppar inte en pågående värmning. Ett val per bil (avstängt som standard) kan låta schemalagd värmning fortsätta i 30 minuter efter avresan, utöver den beräknade uppvärmningen före avresan. Det förlänger inte körningar med **Starta nu**; temperaturspärren gäller fortfarande. **Stoppa** avbryter en uppvärmning som integrationen själv styr. Om brytaren redan är påslagen när den planerade uppvärmningen ska börja tar integrationen inte över den. Gångtider som ställdes in i tidigare versioner används inte längre.
 
 ## Valfri effekt- och energiövervakning
 
