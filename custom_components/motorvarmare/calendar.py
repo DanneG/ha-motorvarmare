@@ -1,4 +1,4 @@
-"""A calendar of one-time, locally stored vehicle departures."""
+"""A calendar of locally stored vehicle departures and recurring series."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
+from .recurrence import next_occurrence
 
 _EVENT_DURATION = timedelta(minutes=1)
 
@@ -35,7 +36,7 @@ async def async_setup_entry(
 
 
 class DepartureCalendar(CalendarEntity):
-    """Expose one-time departures to the Home Assistant calendar UI.
+    """Expose departures to the Home Assistant calendar UI.
 
     The event start is always the departure, not the heater start. End times
     are presentation-only: a departure is a point in time.
@@ -45,7 +46,8 @@ class DepartureCalendar(CalendarEntity):
     _attr_translation_key = "departure_calendar"
     _attr_icon = "mdi:calendar-clock"
     _attr_should_poll = False
-    _attr_supported_features = CalendarEntityFeature.CREATE_EVENT | CalendarEntityFeature.DELETE_EVENT
+    _attr_supported_features = (CalendarEntityFeature.CREATE_EVENT | CalendarEntityFeature.DELETE_EVENT
+                                | CalendarEntityFeature.UPDATE_EVENT)
 
     def __init__(self, entry: ConfigEntry, controller) -> None:
         self.controller = controller
@@ -56,11 +58,17 @@ class DepartureCalendar(CalendarEntity):
 
     def _calendar_event(self, item: dict) -> CalendarEvent:
         start = dt_util.as_local(item["departure"])
+        fields = {}
+        if item.get("recurrence_id"):
+            fields["recurrence_id"] = item["recurrence_id"]
+        if item.get("rrule"):
+            fields["rrule"] = item["rrule"]
         return CalendarEvent(
             start=start,
             end=dt_util.as_local(item["departure"] + _EVENT_DURATION),
             summary=item.get("summary") or "Departure",
             uid=item["uid"],
+            **fields,
         )
 
     @property
@@ -68,6 +76,10 @@ class DepartureCalendar(CalendarEntity):
         """Return the next upcoming event in the local calendar."""
         now = dt_util.utcnow()
         upcoming = [item for item in self.controller.local_departures if item["departure"] + _EVENT_DURATION > now]
+        for series in self.controller.recurring_departures:
+            item = next_occurrence(series, now - _EVENT_DURATION + timedelta(microseconds=1))
+            if item:
+                upcoming.append(item)
         if not upcoming:
             return None
         return self._calendar_event(min(upcoming, key=lambda item: item["departure"]))
@@ -76,16 +88,12 @@ class DepartureCalendar(CalendarEntity):
         self, hass: HomeAssistant, start_date: datetime, end_date: datetime
     ) -> list[CalendarEvent]:
         """Return every local departure that overlaps the requested window."""
-        return [
-            self._calendar_event(item)
-            for item in sorted(self.controller.local_departures, key=lambda item: item["departure"])
-            if item["departure"] < end_date and item["departure"] + _EVENT_DURATION > start_date
-        ]
+        return [self._calendar_event(item) for item in
+                self.controller.local_events_between(start_date - _EVENT_DURATION + timedelta(microseconds=1), end_date)
+                if item["departure"] + _EVENT_DURATION > start_date]
 
     async def async_create_event(self, **kwargs: Any) -> None:
-        """Add a future timed event; recurring schedules use weekly controls."""
-        if kwargs.get(EVENT_RRULE):
-            raise ServiceValidationError(translation_domain=DOMAIN, translation_key="recurring_unsupported")
+        """Add a future timed event, optionally with a supported recurrence."""
         start = kwargs.get(EVENT_START)
         if not isinstance(start, datetime):
             raise ServiceValidationError(translation_domain=DOMAIN, translation_key="timed_departure_required")
@@ -95,7 +103,7 @@ class DepartureCalendar(CalendarEntity):
         if dt_util.as_local(dt_util.as_utc(local_start)).replace(tzinfo=None) != local_start.replace(tzinfo=None):
             raise ServiceValidationError(translation_domain=DOMAIN, translation_key="departure_nonexistent_time")
         try:
-            await self.controller.async_add_local_departure(start, kwargs.get(EVENT_SUMMARY))
+            await self.controller.async_add_local_departure(start, kwargs.get(EVENT_SUMMARY), kwargs.get(EVENT_RRULE))
         except ValueError as exc:
             raise ServiceValidationError(translation_domain=DOMAIN, translation_key=str(exc)) from exc
 
@@ -103,10 +111,31 @@ class DepartureCalendar(CalendarEntity):
         self, uid: str, recurrence_id: str | None = None, recurrence_range: str | None = None
     ) -> None:
         """Delete just the specified local departure, not a Google event."""
-        if recurrence_id or recurrence_range:
+        if recurrence_range:
             raise ServiceValidationError(translation_domain=DOMAIN, translation_key="recurring_unsupported")
         try:
-            await self.controller.async_delete_local_departure(uid)
+            await self.controller.async_delete_local_departure(uid, recurrence_id)
+        except ValueError as exc:
+            raise ServiceValidationError(translation_domain=DOMAIN, translation_key=str(exc)) from exc
+
+    async def async_update_event(
+        self, uid: str, event: dict[str, Any], recurrence_id: str | None = None,
+        recurrence_range: str | None = None,
+    ) -> None:
+        """Update one instance or the entire local series atomically."""
+        if recurrence_range:
+            raise ServiceValidationError(translation_domain=DOMAIN, translation_key="recurring_unsupported")
+        start = event.get(EVENT_START)
+        if not isinstance(start, datetime):
+            raise ServiceValidationError(translation_domain=DOMAIN, translation_key="timed_departure_required")
+        if start.tzinfo is None or start.utcoffset() is None:
+            raise ServiceValidationError(translation_domain=DOMAIN, translation_key="timezone_required")
+        local_start = dt_util.as_local(start)
+        if dt_util.as_local(dt_util.as_utc(local_start)).replace(tzinfo=None) != local_start.replace(tzinfo=None):
+            raise ServiceValidationError(translation_domain=DOMAIN, translation_key="departure_nonexistent_time")
+        try:
+            await self.controller.async_update_local_departure(
+                uid, start, event.get(EVENT_SUMMARY), event.get(EVENT_RRULE), recurrence_id)
         except ValueError as exc:
             raise ServiceValidationError(translation_domain=DOMAIN, translation_key=str(exc)) from exc
 
@@ -117,7 +146,11 @@ class DepartureCalendar(CalendarEntity):
     @callback
     def _on_controller_update(self) -> None:
         """Refresh event subscribers when the local departures change."""
-        snapshot = tuple((item["uid"], item["departure"], item.get("summary")) for item in self.controller.local_departures)
+        snapshot = (tuple((item["uid"], item["departure"], item.get("summary")) for item in self.controller.local_departures),
+                    tuple((item["uid"], item["departure"], item.get("summary"), item.get("rrule"),
+                           tuple(item.get("exceptions", [])),
+                           tuple((x["recurrence_id"], x["departure"], x.get("summary"))
+                                 for x in item.get("overrides", []))) for item in self.controller.recurring_departures))
         if snapshot != self._events_snapshot:
             self._events_snapshot = snapshot
             self.async_update_event_listeners()

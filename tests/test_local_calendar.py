@@ -36,6 +36,7 @@ class FakeCalendarEvent:
 class FakeFeatures:
     CREATE_EVENT = 1
     DELETE_EVENT = 2
+    UPDATE_EVENT = 4
 
 
 calendar_api.CalendarEntity = FakeCalendarEntity
@@ -117,7 +118,7 @@ class LocalCalendarTests(unittest.TestCase):
         with self.assertRaises(exceptions.ServiceValidationError):
             await entity.async_create_event(dtstart=future.replace(tzinfo=None), summary="No zone")
         with self.assertRaises(exceptions.ServiceValidationError):
-            await entity.async_create_event(dtstart=future, summary="Recurring", rrule="FREQ=DAILY")
+            await entity.async_create_event(dtstart=future, summary="Recurring", rrule="FREQ=HOURLY")
         with self.assertRaises(exceptions.ServiceValidationError):
             await entity.async_delete_event("missing")
         self.assertEqual(c.local_departures, [])

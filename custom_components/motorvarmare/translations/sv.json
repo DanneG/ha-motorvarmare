@@ -195,7 +195,7 @@
       "message": "Avresan kunde inte hittas."
     },
     "recurring_unsupported": {
-      "message": "Återkommande avresor stöds via veckoschemat."
+      "message": "Den här upprepningsregeln eller åtgärden stöds inte."
     },
     "timed_departure_required": {
       "message": "Välj ett datum och klockslag, inte en heldagshändelse."

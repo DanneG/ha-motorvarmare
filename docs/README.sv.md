@@ -14,9 +14,11 @@ För manuell installation: kopiera `custom_components/motorvarmare` till Home As
 
 ## Avresor och kalender
 
-Kortet visar de kommande sju lokala kalenderdagarna med avresor samt uppskattad start och avstängning för värmaren. Starttiderna är en **uppskattning med aktuell utetemperatur**, inte en väderprognos, och kan ändras när temperaturen ändras. En avresa från veckoschema, Google-kalender eller den egna kalendern kan visas här.
+Kortet visar sju lokala kalenderdagar i taget, med möjlighet att bläddra framåt. Här syns avresor samt uppskattad start och avstängning för värmaren. Starttiderna är en **uppskattning med aktuell utetemperatur**, inte en väderprognos, och kan ändras när temperaturen ändras. En avresa från veckoschema, Google-kalender eller den egna kalendern kan visas här.
 
-Välj en dag i kortets kalender och lägg till en eller flera avresetider. De sparas i bilens egen Home Assistant-kalender och går att ta bort var för sig. De skrivs inte till Google Kalender. Veckoschemat och den tidigare entiteten för en manuell avresa finns kvar. Den närmaste framtida avresan styr.
+Välj en dag i kortets kalender och lägg till en eller flera avresetider. Välj engångsavresa eller upprepning dagligen, veckovis, månadsvis eller årligen, med intervall och valfritt slutdatum. För veckovis upprepning kan flera veckodagar väljas. Avresorna sparas i bilens egen Home Assistant-kalender och skrivs inte till Google Kalender. En enskild avresa eller hela serien kan tas bort. Veckoschemat och den tidigare entiteten för en manuell avresa finns kvar. Den närmaste framtida avresan styr. Återkommande avresor följer Home Assistants lokala tid: klockslag som inte finns vid övergången till sommartid hoppas över och vid dubbel klocktid på hösten används den första förekomsten.
+
+Du kan ändra en enskild lokal avresa eller en hel serie. Ändras seriens start eller upprepningsregel tas dess enskilda ändringar och undantag bort; kortet varnar innan ändringen genomförs. Månadsvis upprepning följer det ursprungliga datumet och hoppar över månader där det datumet saknas. De upprepningar som stöds är de som anges ovan; exempelvis stöds inte ”andra måndagen” eller ändring av ”denna och följande”.
 
 För Google Kalender: installera först [Google Calendar-integrationen](https://www.home-assistant.io/integrations/google/), välj kalendern i bilens inställningar och ange exakta händelsetitlar och/eller ord eller taggar. Separera flera alternativ med kommatecken eller radbrytning. En händelse matchar om hela titeln stämmer med en vald titel, **eller** om något av orden/taggarna finns i titel eller beskrivning. Versaler och gemener behandlas lika. Händelsens start är avresetiden; heldagshändelser ignoreras. Kalenderändringar kan dröja innan de syns i Home Assistant.
 
@@ -35,6 +37,8 @@ Om du har valt en effektsensor och aktiverat lågeffektslarmet kan integrationen
 ## Historik över värmningar
 
 Integrationen sparar de 100 senaste perioderna då brytaren varit på separat för varje bil. I kortet kan du se start, stopp, gångtid och uppmätt energi när den finns tillgänglig. Att brytaren varit på betyder inte säkert att värmaren dragit effekt. Historiken börjar samlas in från version 0.7.0; äldre körningar återskapas inte. Körningar sparas även utan energisensor, och saknade eller ofullständiga värden visas inte som noll.
+
+Summor per dag, vecka och månad utgår från de registrerade, avslutade körningarna och grupperas efter lokalt slutdatum. Om en körning passerar en periodgräns går energin inte att dela upp tillförlitligt; berörda perioder markeras som ofullständiga och summan för slutperioden kan bli för hög. Även saknade mätvärden och ofullständig historik markeras. Upp till 32 dags-, 16 vecko- och 12 månadssummor visas.
 
 ## Drift och säkerhet
 

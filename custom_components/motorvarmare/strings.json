@@ -195,7 +195,7 @@
       "message": "The departure could not be found."
     },
     "recurring_unsupported": {
-      "message": "Use the weekly schedule for recurring departures."
+      "message": "This recurrence rule or operation is not supported."
     },
     "timed_departure_required": {
       "message": "Choose a date and time, not an all-day event."

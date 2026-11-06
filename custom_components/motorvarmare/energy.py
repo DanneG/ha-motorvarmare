@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
+from datetime import date, timedelta
 import logging
 import math
 import time
@@ -18,6 +18,154 @@ _LOGGER = logging.getLogger(__name__)
 _POWER_UNITS = {"mW": 0.001, "W": 1.0, "kW": 1000.0, "MW": 1000000.0}
 _ENERGY_UNITS = {"mWh": 0.000001, "Wh": 0.001, "kWh": 1.0, "MWh": 1000.0}
 _HISTORY_LIMIT = 100
+_TOTAL_LIMITS = {"daily": 32, "weekly": 16, "monthly": 12}
+
+
+def _period_start(day, kind):
+    """Return the local calendar day starting a day, ISO week or month."""
+    if kind == "weekly":
+        return day - timedelta(days=day.weekday())
+    if kind == "monthly":
+        return day.replace(day=1)
+    return day
+
+
+def _next_period(day, kind):
+    if kind == "weekly":
+        return day + timedelta(days=7)
+    if kind == "monthly":
+        return date(day.year + (day.month == 12), day.month % 12 + 1, 1)
+    return day + timedelta(days=1)
+
+
+def _history_local_day(value, zone):
+    """Parse one historical instant into the configured local date."""
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = dt_util.parse_datetime(value)
+        return parsed.astimezone(zone).date() if parsed and parsed.tzinfo else None
+    except (ValueError, TypeError, OverflowError):
+        return None
+
+
+def history_energy_totals(history, now, zone):
+    """Summarize recorded finished sessions without inventing energy data.
+
+    The input is bounded session history, not a meter's lifetime total. All
+    session energy is attributed to its local end date. Both periods touched
+    by a boundary-crossing session are explicitly marked incomplete because
+    a session total cannot safely be split between them.
+    """
+    today = now.astimezone(zone).date()
+    groups = {kind: {} for kind in _TOTAL_LIMITS}
+    observed_starts = []
+    unknown_end_starts = []
+    unknown_start_ends = []
+    oldest_end = None
+
+    def bucket(kind, day):
+        key = _period_start(day, kind)
+        return groups[kind].setdefault(key, {
+            "period_start": key.isoformat(), "_values": [], "sessions": 0,
+            "missing_energy": 0, "crossed_boundary": False,
+            "truncated": False, "coverage_incomplete": False,
+        })
+
+    for kind in groups:
+        bucket(kind, today)
+
+    for index, item in enumerate(history):
+        if not isinstance(item, dict):
+            unknown_end_starts.append(None)
+            continue
+        start = _history_local_day(item.get("start"), zone)
+        end = _history_local_day(item.get("end"), zone)
+        if start:
+            observed_starts.append(start)
+        elif end:
+            observed_starts.append(end)
+            unknown_start_ends.append(end)
+        if index == 0:
+            oldest_end = end
+        if not end or end > today:
+            unknown_end_starts.append(start)
+            continue
+        value = item.get("energy_kwh")
+        valid = isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0
+        for kind in groups:
+            b = bucket(kind, end)
+            b["sessions"] += 1
+            if valid:
+                b["_values"].append(float(value))
+            else:
+                b["missing_energy"] += 1
+            if not item.get("complete"):
+                b["coverage_incomplete"] = True
+            if start and start <= end:
+                first = _period_start(start, kind)
+                last = _period_start(end, kind)
+                if first != last:
+                    # Mark both sides even if the earlier period has no other
+                    # finished sessions. Bound corrupted or extremely long
+                    # sessions; all existing buckets are then uncertain.
+                    cursor, count = first, 0
+                    while cursor <= last and count < 400:
+                        bucket(kind, cursor)["crossed_boundary"] = True
+                        try:
+                            cursor = _next_period(cursor, kind)
+                        except (ValueError, OverflowError):
+                            count = 400
+                            break
+                        count += 1
+                    if count >= 400 and cursor <= last:
+                        for existing in groups[kind].values():
+                            existing["coverage_incomplete"] = True
+                        b["crossed_boundary"] = True
+            elif start and start > end:
+                b["coverage_incomplete"] = True
+
+    result = {"scope": "recorded_completed_sessions", "history_limit": _HISTORY_LIMIT,
+              "limits": dict(_TOTAL_LIMITS), "has_older": {}}
+    first_observed = min(observed_starts) if observed_starts else None
+    for kind, entries in groups.items():
+        if oldest_end and len(history) >= _HISTORY_LIMIT:
+            bucket(kind, oldest_end)["truncated"] = True
+        elif len(history) >= _HISTORY_LIMIT:
+            # The oldest retained record has no known end, so its true period
+            # and the point at which older sessions were dropped are unknown.
+            for b in entries.values():
+                b["truncated"] = True
+        first_period = _period_start(first_observed, kind) if first_observed else None
+        for period, b in entries.items():
+            # We cannot establish coverage before the first observed session.
+            if first_period is None or period <= first_period or not b["sessions"]:
+                b["coverage_incomplete"] = True
+            for start in unknown_end_starts:
+                try:
+                    after_start = start is None or _next_period(period, kind) > start
+                except (ValueError, OverflowError):
+                    after_start = True
+                if after_start:
+                    b["coverage_incomplete"] = True
+            if any(period <= end for end in unknown_start_ends):
+                b["coverage_incomplete"] = True
+            values = b.pop("_values")
+            try:
+                total = math.fsum(values) if values else None
+            except OverflowError:
+                total = None
+                b["coverage_incomplete"] = True
+            if total is not None and not math.isfinite(total):
+                total = None
+                b["coverage_incomplete"] = True
+            b["energy_kwh"] = round(total, 4) if total is not None else None
+            b["incomplete"] = bool(b["missing_energy"] or b["crossed_boundary"]
+                                    or b["truncated"] or b["coverage_incomplete"])
+        ordered = [entries[key] for key in sorted(entries, reverse=True)]
+        result["has_older"][kind] = len(ordered) > _TOTAL_LIMITS[kind]
+        result[kind] = ordered[:_TOTAL_LIMITS[kind]]
+    return result
 
 
 def _read_number(state, units, *, cumulative=False):
@@ -70,11 +218,30 @@ class EnergyMonitor:
         self._history_time_complete = False
         self._observed_switch = None
         self._restored_session = False
+        self._totals_cache_history = None
+        self._totals_cache_length = None
+        self._totals_cache_key = None
+        self._totals_cache = None
 
     @property
     def heating_history(self):
         """Return recent completed sessions, newest first, without exposing internals."""
         return [dict(item) for item in reversed(self._history)]
+
+    @property
+    def history_energy_totals(self):
+        """Return bounded local-calendar summaries, cached until history or day changes."""
+        now = dt_util.utcnow()
+        zone = dt_util.get_default_time_zone()
+        key = (now.astimezone(zone).date(), str(zone))
+        if (self._totals_cache_history is not self._history
+                or self._totals_cache_length != len(self._history)
+                or self._totals_cache_key != key):
+            self._totals_cache = history_energy_totals(self._history, now, zone)
+            self._totals_cache_history = self._history
+            self._totals_cache_length = len(self._history)
+            self._totals_cache_key = key
+        return self._totals_cache
 
     @property
     def power_configured(self):

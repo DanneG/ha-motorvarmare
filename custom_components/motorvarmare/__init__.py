@@ -12,6 +12,15 @@ from .controller import HeaterController
 PLATFORMS = [Platform.DATETIME, Platform.SENSOR, Platform.BUTTON, Platform.TIME, Platform.SWITCH, Platform.CALENDAR]
 
 
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Register the read-only schedule API once for all cars."""
+    from homeassistant.components import websocket_api
+    from .websocket import websocket_get_schedule
+
+    websocket_api.async_register_command(hass, websocket_get_schedule)
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up one car."""
     controller = HeaterController(hass, entry)

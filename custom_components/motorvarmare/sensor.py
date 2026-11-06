@@ -42,7 +42,7 @@ class HeaterStatus(SensorEntity):
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = list(_STATUS_KEYS.values())
     _attr_icon = "mdi:car-defrost-front"
-    _unrecorded_attributes = (getattr(SensorEntity, "_unrecorded_attributes", None) or frozenset()) | frozenset({"heating_history"})
+    _unrecorded_attributes = (getattr(SensorEntity, "_unrecorded_attributes", None) or frozenset()) | frozenset({"heating_history", "history_energy_totals"})
 
     def __init__(self, entry: ConfigEntry, controller) -> None:
         """Bind the sensor to its car."""
@@ -92,6 +92,8 @@ class HeaterStatus(SensorEntity):
             "energy_monitor_status": energy.monitor_status if energy else "disabled",
             "alarm_active": energy.alarm_active if energy else False,
             "heating_history": energy.heating_history if energy else [],
+            "history_energy_totals": energy.history_energy_totals if energy else None,
+            "schedule_query_supported": True,
             # Entity-registry lookups survive renames and keep cars separate.
             "control_entities": {
                 "manual_departure": entity_id("datetime", "manual_departure"),

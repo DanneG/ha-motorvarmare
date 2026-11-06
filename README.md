@@ -14,9 +14,11 @@ For a manual installation, copy `custom_components/motorvarmare` into the Home A
 
 ## Departures and calendar
 
-The card shows the next seven local calendar days, with departures and estimated heater start and stop times. Start times are **estimates using the current outdoor temperature**, not a weather forecast, and can change as the temperature changes. Departures may come from the weekly schedule, Google Calendar, or the integration's own calendar.
+The card shows seven local calendar days at a time and can browse forward, with departures and estimated heater start and stop times. Start times are **estimates using the current outdoor temperature**, not a weather forecast, and can change as the temperature changes. Departures may come from the weekly schedule, Google Calendar, or the integration's own calendar.
 
-Select a day in the card to add one or more departure times. These are stored in the car's own Home Assistant calendar and can be removed individually. They are not written to Google Calendar. The existing weekly schedule and single manual-departure entity remain available. The nearest future departure controls the heater.
+Select a day in the card to add one or more departure times. Choose a one-time departure or a daily, weekly, monthly or yearly recurrence with an interval and optional end date. Weekly recurrence can select several weekdays. These departures are stored in the car's own Home Assistant calendar; they are not written to Google Calendar. A single occurrence or the whole series can be removed. The existing weekly schedule and single manual-departure entity remain available. The nearest future departure controls the heater. Recurrences use Home Assistant's local time: a nonexistent spring-forward time is skipped, and the first occurrence of a repeated autumn time is used.
+
+Local departures can be edited individually or as an entire series. Changing a series' start or recurrence rule clears its individual changes and exclusions; the card warns before applying this. Monthly recurrence follows the original day of the month and skips months without that date. The supported recurrence options are those listed above; rules such as “the second Monday” and editing “this and following” occurrences are not supported.
 
 To use Google Calendar, first set up the [Google Calendar integration](https://www.home-assistant.io/integrations/google/), choose a calendar in the car's settings, and enter exact event titles and/or words or tags, separated by commas or line breaks. An event matches if its entire title equals one of the titles, **or** if any word or tag appears in its title or description. Matching ignores letter case. The event's start is the departure time; all-day events are ignored. Calendar changes can take time to reach Home Assistant.
 
@@ -35,6 +37,8 @@ With a power sensor selected and low-power alerts enabled, the integration warns
 ## Heating history
 
 The integration stores up to the 100 most recent switch-on periods separately for each vehicle. The companion card shows their start, end, duration and measured energy when available. A switch-on period does not prove the heater was consuming power. History is collected from version 0.7.0 onward; older sessions are not reconstructed. Sessions can be recorded without an energy sensor, and unavailable or incomplete readings are not shown as zero.
+
+Daily, weekly and monthly summaries use those recorded, completed sessions, grouped by their local end date. If a session crosses a period boundary, its energy cannot be split reliably; the affected periods are marked incomplete and the end-period sum can be too high. Missing measurements and incomplete history are also marked. Up to 32 daily, 16 weekly and 12 monthly periods are displayed.
 
 ## Operation and safety
 

@@ -22,6 +22,7 @@ from .const import (
     DEFAULT_TAG,
 )
 from .energy import EnergyMonitor
+from .recurrence import expand_series, next_occurrence, parse_rule
 
 _LOGGER = logging.getLogger(__name__)
 _MAX_RUNTIME = timedelta(hours=4)
@@ -75,6 +76,7 @@ class HeaterController:
         self.store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}")
         self.manual_departure = None
         self.local_departures = []
+        self.recurring_departures = []
         self.weekly_times = [time(7, 0) for _ in range(7)]
         self.weekly_enabled = [False] * 7
         self.status = "Väntar"
@@ -125,6 +127,32 @@ class HeaterController:
                 summary = item.get("summary")
                 self.local_departures.append({"uid": item["uid"], "departure": departure,
                                               "summary": summary if isinstance(summary, str) and summary.strip() else "Avresa"})
+        self.recurring_departures = []
+        for item in data.get("recurring_departures", []):
+            if not isinstance(item, dict) or not isinstance(item.get("uid"), str):
+                continue
+            try:
+                departure = self._parse(item.get("departure"))
+                parse_rule(item.get("rrule"))
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if departure:
+                exceptions = item.get("exceptions")
+                overrides = []
+                stored_overrides = item.get("overrides")
+                for override in stored_overrides if isinstance(stored_overrides, list) else []:
+                    try:
+                        original = self._parse(override.get("recurrence_id"))
+                        moved = self._parse(override.get("departure"))
+                        if original and moved:
+                            overrides.append({"recurrence_id": original.isoformat(), "departure": moved,
+                                              "summary": override.get("summary") or "Avresa"})
+                    except (AttributeError, TypeError, ValueError):
+                        continue
+                self.recurring_departures.append({"uid": item["uid"], "departure": departure,
+                    "summary": item.get("summary") or "Avresa", "rrule": item["rrule"],
+                    "exceptions": [x for x in exceptions if isinstance(x, str)] if isinstance(exceptions, list) else [],
+                    "overrides": overrides})
         for i, item in enumerate(data.get("weekly_times", [])[:7]):
             try:
                 self.weekly_times[i] = time.fromisoformat(item)
@@ -164,6 +192,12 @@ class HeaterController:
             "local_departures": [{"uid": item["uid"], "departure": iso(item["departure"]),
                                   "summary": item.get("summary", "Avresa")}
                                  for item in self.local_departures],
+            "recurring_departures": [{"uid": item["uid"], "departure": iso(item["departure"]),
+                "summary": item.get("summary", "Avresa"), "rrule": item["rrule"],
+                "exceptions": list(item.get("exceptions", [])),
+                "overrides": [{"recurrence_id": override["recurrence_id"],
+                               "departure": iso(override["departure"]), "summary": override["summary"]}
+                              for override in item.get("overrides", [])]} for item in self.recurring_departures],
             "weekly_times": [t.isoformat() for t in self.weekly_times],
             "weekly_enabled": self.weekly_enabled,
             "owned": self.owned,
@@ -182,7 +216,7 @@ class HeaterController:
             await self._save()
         await self.async_update()
 
-    async def async_add_local_departure(self, moment, summary=None):
+    async def async_add_local_departure(self, moment, summary=None, rrule=None):
         """Add one departure in the integration's own calendar."""
         if not isinstance(moment, datetime):
             raise ValueError("departure_invalid")
@@ -190,10 +224,19 @@ class HeaterController:
         if moment <= dt_util.utcnow():
             raise ValueError("departure_past")
         title = summary.strip() if isinstance(summary, str) and summary.strip() else "Avresa"
+        if rrule:
+            parse_rule(rrule)
+            if not next_occurrence({"uid": "validation", "departure": moment, "summary": title,
+                                    "rrule": rrule, "exceptions": []}, moment):
+                raise ValueError("recurring_unsupported")
         uid = str(uuid4())
         async with self._lock:
-            self.local_departures.append({"uid": uid, "departure": moment, "summary": title})
-            self.local_departures.sort(key=lambda item: item["departure"])
+            if rrule:
+                self.recurring_departures.append({"uid": uid, "departure": moment, "summary": title,
+                                                  "rrule": rrule, "exceptions": []})
+            else:
+                self.local_departures.append({"uid": uid, "departure": moment, "summary": title})
+                self.local_departures.sort(key=lambda item: item["departure"])
             key = f"Planerad|{moment.isoformat()}"
             if self._suppression_until is not None and self._suppression_until > dt_util.utcnow():
                 # A newly created event is an explicit request to schedule it,
@@ -204,14 +247,125 @@ class HeaterController:
         await self.async_update()
         return uid
 
-    async def async_delete_local_departure(self, uid):
+    def local_events_between(self, start, end):
+        """Return local one-off and recurring departures in a bounded interval."""
+        events = [dict(item) for item in self.local_departures if start <= item["departure"] < end]
+        for item in self.recurring_departures:
+            events.extend(expand_series(item, start, end))
+        return sorted(events, key=lambda item: item["departure"])
+
+    async def async_update_local_departure(self, uid, moment, summary=None, rrule=None, recurrence_id=None):
+        """Replace an event or one instance in a single storage transaction."""
+        if not isinstance(moment, datetime) or moment.tzinfo is None or moment.utcoffset() is None:
+            raise ValueError("departure_invalid")
+        moment = dt_util.as_utc(moment)
+        title = summary.strip() if isinstance(summary, str) and summary.strip() else "Avresa"
+        if rrule:
+            parse_rule(rrule)
+        now = dt_util.utcnow()
+        async with self._lock:
+            oneoffs = list(self.local_departures)
+            series_list = list(self.recurring_departures)
+            series = next((item for item in series_list if item["uid"] == uid), None)
+            oneoff = next((item for item in oneoffs if item["uid"] == uid), None)
+            if series is None and oneoff is None:
+                raise ValueError("departure_not_found")
+            if recurrence_id:
+                if series is None or (rrule and rrule != series["rrule"]):
+                    raise ValueError("recurring_unsupported")
+                try:
+                    original = self._parse(recurrence_id)
+                    if original is None:
+                        raise ValueError
+                    key = original.isoformat()
+                    old_override = next((x for x in series.get("overrides", []) if x["recurrence_id"] == key), None)
+                    if not old_override and not expand_series(series, original, original + timedelta(microseconds=1)):
+                        raise ValueError
+                except (TypeError, ValueError, OverflowError) as exc:
+                    raise ValueError("departure_not_found") from exc
+                if moment <= now:
+                    raise ValueError("departure_past")
+                modified = dict(series)
+                exceptions = [x for x in series.get("exceptions", []) if x != key]
+                overrides = [x for x in series.get("overrides", []) if x["recurrence_id"] != key]
+                if moment != original or title != series.get("summary"):
+                    exceptions.append(key)
+                    overrides.append({"recurrence_id": key, "departure": moment, "summary": title})
+                modified.update(exceptions=exceptions, overrides=overrides)
+                series_list[series_list.index(series)] = modified
+            elif rrule:
+                modified = {"uid": uid, "departure": moment, "summary": title, "rrule": rrule,
+                            "exceptions": [], "overrides": []}
+                if series is not None and series["departure"] == moment and series["rrule"] == rrule:
+                    modified["exceptions"] = list(series.get("exceptions", []))
+                    modified["overrides"] = list(series.get("overrides", []))
+                future = next_occurrence(modified, now + timedelta(microseconds=1))
+                if not future:
+                    raise ValueError("recurring_unsupported")
+                if series is not None:
+                    series_list[series_list.index(series)] = modified
+                else:
+                    oneoffs.remove(oneoff)
+                    series_list.append(modified)
+            else:
+                if moment <= now:
+                    raise ValueError("departure_past")
+                modified = {"uid": uid, "departure": moment, "summary": title}
+                if series is not None:
+                    series_list.remove(series)
+                    oneoffs.append(modified)
+                else:
+                    oneoffs[oneoffs.index(oneoff)] = modified
+            oneoffs.sort(key=lambda item: item["departure"])
+            old_oneoffs, old_series = self.local_departures, self.recurring_departures
+            self.local_departures, self.recurring_departures = oneoffs, series_list
+            try:
+                await self._save()
+            except BaseException:
+                self.local_departures, self.recurring_departures = old_oneoffs, old_series
+                raise
+        await self.async_update()
+
+    async def async_delete_local_departure(self, uid, recurrence_id=None):
         """Remove an event owned by this car, never an external event."""
         async with self._lock:
-            remaining = [item for item in self.local_departures if item["uid"] != uid]
-            if len(remaining) == len(self.local_departures):
-                raise ValueError("departure_not_found")
-            self.local_departures = remaining
-            await self._save()
+            series = next((item for item in self.recurring_departures if item["uid"] == uid), None)
+            if series is not None:
+                if recurrence_id:
+                    try:
+                        moment = self._parse(recurrence_id)
+                        key = moment.isoformat() if moment else None
+                        override = next((x for x in series.get("overrides", []) if x["recurrence_id"] == key), None)
+                        if not moment or (not override and not expand_series(series, moment, moment + timedelta(microseconds=1))):
+                            raise ValueError("departure_not_found")
+                    except (TypeError, ValueError, OverflowError) as exc:
+                        raise ValueError("departure_not_found") from exc
+                    modified = dict(series)
+                    modified["exceptions"] = list(series.get("exceptions", []))
+                    if key not in modified["exceptions"]:
+                        modified["exceptions"].append(key)
+                    modified["overrides"] = [x for x in series.get("overrides", []) if x["recurrence_id"] != key]
+                    changed = [modified if x is series else x for x in self.recurring_departures]
+                else:
+                    changed = [x for x in self.recurring_departures if x is not series]
+                previous, self.recurring_departures = self.recurring_departures, changed
+                try:
+                    await self._save()
+                except BaseException:
+                    self.recurring_departures = previous
+                    raise
+            else:
+                if recurrence_id:
+                    raise ValueError("departure_not_found")
+                remaining = [item for item in self.local_departures if item["uid"] != uid]
+                if len(remaining) == len(self.local_departures):
+                    raise ValueError("departure_not_found")
+                previous, self.local_departures = self.local_departures, remaining
+                try:
+                    await self._save()
+                except BaseException:
+                    self.local_departures = previous
+                    raise
         await self.async_update()
 
     async def async_set_weekly_time(self, day, value):
@@ -444,6 +598,12 @@ class HeaterController:
             result.append((self.manual_departure, "Manuell"))
         result.extend((item["departure"], "Planerad") for item in self.local_departures
                       if item["departure"] > now)
+        for series in self.recurring_departures:
+            occurrences = expand_series(series, now + timedelta(microseconds=1), now + timedelta(days=9))
+            if not occurrences:
+                next_item = next_occurrence(series, now + timedelta(microseconds=1))
+                occurrences = [next_item] if next_item else []
+            result.extend((item["departure"], "Planerad") for item in occurrences)
         local_now = dt_util.as_local(now)
         for offset in range(8):
             day = local_now.date() + timedelta(days=offset)
@@ -471,7 +631,7 @@ class HeaterController:
         temperature = self._temperature()
         minutes = duration_for_temperature(temperature) if temperature is not None else None
         locals_by_time = {}
-        for item in self.local_departures:
+        for item in self.local_events_between(now, end + _MAX_RUNTIME):
             locals_by_time.setdefault(item["departure"], []).append(item)
         schedule = []
         for departure, source in self._candidates(now):
@@ -487,11 +647,93 @@ class HeaterController:
                 "source": source,
                 "duration_minutes": minutes,
                 "uid": local["uid"] if local else None,
+                "recurrence_id": local.get("recurrence_id") if local else None,
+                "rrule": local.get("rrule") if local else None,
+                "series_start": local.get("series_start") if local else None,
+                "series_summary": local.get("series_summary") if local else None,
+                "exceptions_count": local.get("exceptions_count", 0) if local else 0,
                 "summary": local.get("summary", "Avresa") if local else "Avresa",
                 "removable": local is not None,
                 "suppressed": f"{source}|{departure.isoformat()}" in self._suppressed,
             })
         return schedule
+
+    async def async_schedule_between(self, first_day, last_day, include_external=True):
+        """Project a short local-date window without changing heater control.
+
+        The end date is exclusive. External-calendar errors do not change the
+        scheduler cache and are explicitly returned to the requesting client.
+        """
+        if not 1 <= (last_day - first_day).days <= 31:
+            raise ValueError("invalid_schedule_range")
+        zone = dt_util.get_default_time_zone()
+        start = dt_util.as_utc(datetime.combine(first_day, time.min, tzinfo=zone))
+        end = dt_util.as_utc(datetime.combine(last_day, time.min, tzinfo=zone))
+        query_end = end + _MAX_RUNTIME
+        entries = [(item["departure"], "Planerad", item) for item in self.local_events_between(start, query_end)]
+        if self.manual_departure and start <= self.manual_departure < query_end:
+            entries.append((self.manual_departure, "Manuell", None))
+        day = first_day
+        # Include early next-day departures whose heating starts before end.
+        while day <= last_day:
+            weekday = day.weekday()
+            if self.weekly_enabled[weekday]:
+                local = datetime.combine(day, self.weekly_times[weekday], tzinfo=zone)
+                moment = dt_util.as_utc(local)
+                if (dt_util.as_local(moment).replace(tzinfo=None) == local.replace(tzinfo=None)
+                        and start <= moment < query_end):
+                    entries.append((moment, "Veckoschema", None))
+            day += timedelta(days=1)
+        calendar_error = False
+        entity_id = self.config.get(CONF_CALENDAR)
+        if entity_id and not include_external:
+            calendar_error = True
+        elif entity_id:
+            try:
+                response = await asyncio.wait_for(self.hass.services.async_call(
+                    "calendar", "get_events", {ATTR_ENTITY_ID: entity_id,
+                        "start_date_time": start.isoformat(), "end_date_time": query_end.isoformat()},
+                    blocking=True, return_response=True), timeout=10)
+                raw_events = response[entity_id]["events"]
+                for event in raw_events:
+                    if not isinstance(event, dict):
+                        continue
+                    raw = event.get("start")
+                    if not isinstance(raw, datetime) and not (isinstance(raw, str) and
+                            re.match(r"^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}", raw)):
+                        continue
+                    try:
+                        moment = self._parse(raw)
+                    except (ValueError, TypeError):
+                        continue
+                    if moment and start <= moment < query_end and calendar_event_matches(
+                            event.get("summary"), event.get("description"),
+                            self.config.get("event_titles"), self.config.get("event_keywords"),
+                            self.config.get(CONF_TAG, DEFAULT_TAG)):
+                        entries.append((moment, "Kalender", {"summary": event.get("summary") or "Avresa"}))
+            except Exception:
+                calendar_error = True
+                _LOGGER.warning("Could not load projected calendar for %s", self.entry.title, exc_info=True)
+        temperature = self._temperature()
+        minutes = duration_for_temperature(temperature) if temperature is not None else None
+        result = []
+        for departure, source, local in sorted(entries, key=lambda x: x[0]):
+            planned = departure - timedelta(minutes=minutes) if minutes else None
+            if departure >= end and (planned is None or planned >= end):
+                continue
+            owned_local = source == "Planerad" and local is not None
+            result.append({"departure": departure.isoformat(), "start": planned.isoformat() if planned else None,
+                           "source": source, "duration_minutes": minutes,
+                           "uid": local.get("uid") if owned_local else None,
+                           "recurrence_id": local.get("recurrence_id") if owned_local else None,
+                           "rrule": local.get("rrule") if owned_local else None,
+                           "series_start": local.get("series_start") if owned_local else None,
+                           "series_summary": local.get("series_summary") if owned_local else None,
+                           "exceptions_count": local.get("exceptions_count", 0) if owned_local else 0,
+                           "summary": local.get("summary", "Avresa") if local else "Avresa",
+                           "removable": owned_local,
+                           "suppressed": f"{source}|{departure.isoformat()}" in self._suppressed})
+        return {"events": result, "calendar_error": calendar_error}
 
     def _temperature(self):
         state = self.hass.states.get(self.config[CONF_TEMPERATURE])
