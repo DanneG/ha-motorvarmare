@@ -63,6 +63,7 @@ class HeaterStatus(SensorEntity):
         """Expose the next decision and any problem."""
         controller = self.controller
         registry = er.async_get(self.hass)
+        energy = getattr(controller, "energy", None)
 
         def entity_id(domain: str, suffix: str) -> str | None:
             return registry.async_get_entity_id(domain, DOMAIN, f"{self._entry_id}_{suffix}")
@@ -81,6 +82,14 @@ class HeaterStatus(SensorEntity):
             "owned": controller.owned,
             "active_until": controller.active_until,
             "schedule_7_days": controller.schedule_7_days,
+            "power_sensor_configured": energy.power_configured if energy else False,
+            "energy_sensor_configured": energy.energy_configured if energy else False,
+            "energy_sensor_available": energy.energy_sensor_available if energy else False,
+            "power_w": energy.power_w if energy else None,
+            "session_energy_kwh": energy.session_energy_kwh if energy else None,
+            "energy_session_status": energy.energy_session_status if energy else "disabled",
+            "energy_monitor_status": energy.monitor_status if energy else "disabled",
+            "alarm_active": energy.alarm_active if energy else False,
             # Entity-registry lookups survive renames and keep cars separate.
             "control_entities": {
                 "manual_departure": entity_id("datetime", "manual_departure"),

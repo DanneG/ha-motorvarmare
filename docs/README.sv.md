@@ -2,7 +2,7 @@
 
 [English](../README.md) · Svenska
 
-Motorvärmare planerar en elektrisk motorvärmare utifrån en utetemperatursensor och en avresetid. Varje bil har en egen brytare och egna avresor. Inställningsformulär, entiteter och tillhörande kort stöder svenska och engelska.
+Motorvärmare planerar en elektrisk motorvärmare utifrån en utetemperatursensor och en avresetid. Varje bil har en egen smartplugg eller brytare som fungerar i Home Assistant samt egna avresor. Inställningsformulär, entiteter och tillhörande kort stöder svenska och engelska.
 
 ## Installera
 
@@ -26,9 +26,15 @@ Gångtiden i minuter beräknas som **30 − 1,5 × utetemperaturen i °C**. Resu
 
 **Starta nu** använder samma formel och stänger av när den beräknade tiden har gått. **Stoppa** avbryter en uppvärmning som integrationen själv styr. Om brytaren redan är påslagen när den planerade uppvärmningen ska börja tar integrationen inte över den. Gångtider som ställdes in i tidigare versioner används inte längre.
 
+## Valfri effekt- och energiövervakning
+
+I inställningarna för varje bil kan du välja smartpluggens effektsensor i W eller kW och dess ackumulerade energisensor i Wh eller kWh. Energisensorn behöver ha tillståndsklassen `total` eller `total_increasing`. Spara inställningarna mellan körningarna: när de sparas laddas integrationen om och en körning som den styr avbryts. Kortet kan visa aktuell effekt och förbrukningen under den pågående eller senaste körningen. Förbrukningen bygger på senast rapporterade mätvärden; om pluggen rapporterar slutvärdet för sent kan värdet bli för lågt. Om körningens förbrukning inte kan beräknas tillförlitligt visas den som otillgänglig i stället för att gissas.
+
+Om du har valt en effektsensor och aktiverat lågeffektslarmet kan integrationen varna när brytaren är på men effekten ligger under gränsen. Förvalet är 10 W under fem minuter, och båda värdena går att ändra. Larmet kan stängas av separat. En notis visas i Home Assistant. Du kan även välja en notisentitet, till exempel en telefon med Home Assistant-appen, för att få notisen dit. Varje kanal meddelar högst en gång per påslag. Ett saknat eller otillgängligt mätvärde räknas inte som noll watt. Låg effekt kan även ha andra orsaker, till exempel en termostat; kontrollera kabeln och utrustningen.
+
 ## Drift och säkerhet
 
-Testa start och avstängning med den faktiska brytaren och värmaren innan lösningen används utan uppsikt. Home Assistant, Zigbee och brytaren måste kunna kommunicera för att avstängningskommandot ska nå fram. Använd en separat oberoende maxtimer och utrustning som är avsedd för belastningen och miljön. Följ även bilens och värmarens tillverkaranvisningar.
+Testa start och avstängning med den faktiska brytaren och värmaren innan lösningen används utan uppsikt. Home Assistant måste kunna kommunicera med brytaren för att avstängningskommandot ska nå fram. Använd en separat oberoende maxtimer och utrustning som är avsedd för belastningen och miljön. Följ även bilens och värmarens tillverkaranvisningar.
 
 Integrationen har isolerade tester och har ännu inte verifierats fullt ut på verklig utrustning. Tidpunkter kontrolleras ungefär varje minut och kan påverkas av avbrott eller fördröjd kalendersynkronisering.
 

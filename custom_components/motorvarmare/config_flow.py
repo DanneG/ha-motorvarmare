@@ -15,6 +15,15 @@ from .const import (
     CONF_CALENDAR,
     CONF_EVENT_KEYWORDS,
     CONF_EVENT_TITLES,
+    CONF_POWER_ENTITY,
+    CONF_ENERGY_ENTITY,
+    CONF_POWER_MIN_WATTS,
+    CONF_POWER_DELAY_MINUTES,
+    CONF_POWER_ALARM_ENABLED,
+    CONF_NOTIFY_ENTITY,
+    DEFAULT_POWER_MIN_WATTS,
+    DEFAULT_POWER_DELAY_MINUTES,
+    DEFAULT_POWER_ALARM_ENABLED,
     CONF_SWITCH,
     CONF_TAG,
     CONF_TEMPERATURE,
@@ -42,6 +51,12 @@ def _schema(values: dict[str, Any] | None = None) -> vol.Schema:
         return (vol.Optional(key, description={"suggested_value": value})
                 if value else vol.Optional(key))
 
+    def optional_entity(key: str):
+        """Suggest existing selections without re-adding a cleared field."""
+        value = values.get(key)
+        return (vol.Optional(key, description={"suggested_value": value})
+                if value else vol.Optional(key))
+
     multiline = selector.TextSelector(selector.TextSelectorConfig(multiline=True))
     return vol.Schema(
         {
@@ -55,6 +70,26 @@ def _schema(values: dict[str, Any] | None = None) -> vol.Schema:
             ),
             text_field(CONF_EVENT_TITLES): multiline,
             text_field(CONF_EVENT_KEYWORDS): multiline,
+            optional_entity(CONF_POWER_ENTITY): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            optional_entity(CONF_ENERGY_ENTITY): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Required(CONF_POWER_ALARM_ENABLED, default=values.get(CONF_POWER_ALARM_ENABLED, DEFAULT_POWER_ALARM_ENABLED)): bool,
+            vol.Required(CONF_POWER_MIN_WATTS, default=values.get(CONF_POWER_MIN_WATTS, DEFAULT_POWER_MIN_WATTS)):
+                selector.NumberSelector(selector.NumberSelectorConfig(
+                    min=0.1, max=10000, step="any", mode=selector.NumberSelectorMode.BOX,
+                    unit_of_measurement="W",
+                )),
+            vol.Required(CONF_POWER_DELAY_MINUTES, default=values.get(CONF_POWER_DELAY_MINUTES, DEFAULT_POWER_DELAY_MINUTES)):
+                selector.NumberSelector(selector.NumberSelectorConfig(
+                    min=1, max=120, step=1, mode=selector.NumberSelectorMode.BOX,
+                    unit_of_measurement="min",
+                )),
+            optional_entity(CONF_NOTIFY_ENTITY): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="notify")
+            ),
         }
     )
 
@@ -92,6 +127,12 @@ def _error(
     return None
 
 
+def _normalize_optional_entities(user_input: dict[str, Any]) -> None:
+    """Store cleared values explicitly, so old entry data cannot reappear."""
+    for key in (CONF_CALENDAR, CONF_POWER_ENTITY, CONF_ENERGY_ENTITY, CONF_NOTIFY_ENTITY):
+        user_input[key] = user_input.get(key) or ""
+
+
 class MotorvarmareConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Create a separate entry for each car."""
 
@@ -101,7 +142,7 @@ class MotorvarmareConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             error = _error(self.hass, user_input)
             if error is None:
-                user_input[CONF_CALENDAR] = user_input.get(CONF_CALENDAR) or ""
+                _normalize_optional_entities(user_input)
                 return self.async_create_entry(title=user_input[CONF_NAME], data=user_input)
             return self.async_show_form(
                 step_id="user", data_schema=_schema(user_input), errors={"base": error}
@@ -125,7 +166,7 @@ class MotorvarmareOptionsFlow(config_entries.OptionsFlow):
             current = {**self._entry.data, **self._entry.options}
             error = _error(self.hass, user_input, self._entry.entry_id, current.get(CONF_TAG, ""))
             if error is None:
-                user_input[CONF_CALENDAR] = user_input.get(CONF_CALENDAR) or ""
+                _normalize_optional_entities(user_input)
                 self.hass.config_entries.async_update_entry(
                     self._entry, title=user_input[CONF_NAME]
                 )

@@ -10,11 +10,23 @@
           "temperature_entity": "Outdoor temperature sensor",
           "calendar_entity": "Calendar (optional)",
           "event_titles": "Exact event titles (optional)",
-          "event_keywords": "Words or tags (optional)"
+          "event_keywords": "Words or tags (optional)",
+          "power_entity": "Power sensor (optional)",
+          "energy_entity": "Energy sensor (optional)",
+          "power_min_watts": "Low power threshold",
+          "power_delay_minutes": "Delay before low-power warning",
+          "notify_entity": "Notification recipient (optional)",
+          "power_alarm_enabled": "Enable low-power warning"
         },
         "data_description": {
           "event_titles": "Enter complete event titles, one per line or separated by commas. For example: TILL JOBBET. Spaces are allowed.",
-          "event_keywords": "Enter words, phrases or tags, one per line or separated by commas. Any single title or word/tag can match. Capitalization is ignored."
+          "event_keywords": "Enter words, phrases or tags, one per line or separated by commas. Any single title or word/tag can match. Capitalization is ignored.",
+          "power_entity": "Choose the plug's power sensor in W or kW. A power sensor is required to warn when the heater draws too little power.",
+          "energy_entity": "Choose the plug's cumulative energy sensor in Wh or kWh to display energy used during heating.",
+          "power_min_watts": "Power below this threshold is considered low.",
+          "power_delay_minutes": "Warn only after power has remained low for this long while the heater is on.",
+          "notify_entity": "Choose a notification entity, such as your phone, to also receive a push notification. When alerts are enabled, Home Assistant always receives a notification.",
+          "power_alarm_enabled": "Warn when the heater is on but power remains below the threshold. Turning this off does not disable energy monitoring."
         }
       }
     },
@@ -36,11 +48,23 @@
           "temperature_entity": "Outdoor temperature sensor",
           "calendar_entity": "Calendar (optional)",
           "event_titles": "Exact event titles (optional)",
-          "event_keywords": "Words or tags (optional)"
+          "event_keywords": "Words or tags (optional)",
+          "power_entity": "Power sensor (optional)",
+          "energy_entity": "Energy sensor (optional)",
+          "power_min_watts": "Low power threshold",
+          "power_delay_minutes": "Delay before low-power warning",
+          "notify_entity": "Notification recipient (optional)",
+          "power_alarm_enabled": "Enable low-power warning"
         },
         "data_description": {
           "event_titles": "Enter complete event titles, one per line or separated by commas. For example: TILL JOBBET. Spaces are allowed.",
-          "event_keywords": "Enter words, phrases or tags, one per line or separated by commas. Any single title or word/tag can match. Capitalization is ignored."
+          "event_keywords": "Enter words, phrases or tags, one per line or separated by commas. Any single title or word/tag can match. Capitalization is ignored.",
+          "power_entity": "Choose the plug's power sensor in W or kW. A power sensor is required to warn when the heater draws too little power.",
+          "energy_entity": "Choose the plug's cumulative energy sensor in Wh or kWh to display energy used during heating.",
+          "power_min_watts": "Power below this threshold is considered low.",
+          "power_delay_minutes": "Warn only after power has remained low for this long while the heater is on.",
+          "notify_entity": "Choose a notification entity, such as your phone, to also receive a push notification. When alerts are enabled, Home Assistant always receives a notification.",
+          "power_alarm_enabled": "Warn when the heater is on but power remains below the threshold. Turning this off does not disable energy monitoring."
         }
       }
     },

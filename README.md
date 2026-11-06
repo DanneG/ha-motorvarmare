@@ -2,7 +2,7 @@
 
 English · [Svenska](docs/README.sv.md)
 
-Schedule an electric engine heater using the outdoor temperature and a departure time. Each car has its own switch and departure schedule. Configuration, entities and the companion dashboard card support English and Swedish.
+Schedule an electric engine heater using the outdoor temperature and a departure time. Each car has its own Home Assistant-compatible smart plug or switch and departure schedule. Configuration, entities and the companion dashboard card support English and Swedish.
 
 ## Installation
 
@@ -26,9 +26,15 @@ The run time in minutes is **30 − 1.5 × outdoor temperature in °C**. The res
 
 **Start now** uses the same formula and turns the heater off when the calculated time has elapsed. **Stop** cancels a heating session controlled by the integration. If the switch is already on when scheduled heating should begin, the integration does not take ownership of it. Fixed run-time settings from earlier versions are no longer used.
 
+## Optional power and energy monitoring
+
+In each car's integration settings, optionally select the smart plug's power sensor in W or kW and its cumulative energy sensor in Wh or kWh. An energy sensor should have state class `total` or `total_increasing`. Save settings between heating sessions: saving reloads the integration and stops a session it controls. The card can show current power and the energy used during the current or last heating session. The energy reading uses the most recently reported values; if the plug reports its final value late, it may be too low. If a session reading cannot be calculated reliably, it is shown as unavailable rather than guessed.
+
+With a power sensor selected and low-power alerts enabled, the integration warns when the switch is on but power stays below the configured threshold. The defaults are 10 W and five minutes; both can be changed, and alerts can be switched off separately. A notification appears in Home Assistant. You can also select an optional notification entity, such as a phone running the Home Assistant app, to receive it there. Each channel notifies at most once per switch-on period. No reading or an unavailable sensor is not treated as zero power. Low power can have other causes, including a thermostat; check the cable and equipment.
+
 ## Operation and safety
 
-Test both start and stop with the actual switch and heater before unattended use. Home Assistant, Zigbee and the switch must communicate for the off command to reach the heater. Use an independent maximum-run timer and equipment rated for the load and environment. Follow the car and heater manufacturers' instructions.
+Test both start and stop with the actual switch and heater before unattended use. Home Assistant must be able to communicate with the switch for the off command to reach the heater. Use an independent maximum-run timer and equipment rated for the load and environment. Follow the car and heater manufacturers' instructions.
 
 The integration has isolated tests but has not yet been fully verified on actual equipment. Scheduling is checked about once a minute and may be affected by outages or calendar sync delays.
 

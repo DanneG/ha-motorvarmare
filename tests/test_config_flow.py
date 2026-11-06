@@ -137,6 +137,50 @@ class ConfigFlowTests(unittest.TestCase):
         saved_again = finish(options.async_step_init(dict(base)))["data"]
         self.assertEqual(saved_again["tag"], "")
 
+    def test_monitoring_is_optional_and_existing_fields_are_suggested(self):
+        schema = self.flow._schema({
+            "power_entity": "sensor.plug_power",
+            "energy_entity": "sensor.plug_energy",
+            "notify_entity": "notify.my_phone",
+        }).schema
+        fields = {key.key: key.kwargs for key in schema}
+        for key, value in (("power_entity", "sensor.plug_power"),
+                           ("energy_entity", "sensor.plug_energy"),
+                           ("notify_entity", "notify.my_phone")):
+            self.assertEqual(fields[key]["description"]["suggested_value"], value)
+        self.assertEqual(fields["power_min_watts"]["default"], 10)
+        self.assertEqual(fields["power_delay_minutes"]["default"], 5)
+        self.assertIs(fields["power_alarm_enabled"]["default"], True)
+
+        disabled = self.flow._schema({"power_alarm_enabled": False}).schema
+        disabled_fields = {key.key: key.kwargs for key in disabled}
+        self.assertIs(disabled_fields["power_alarm_enabled"]["default"], False)
+
+    def test_clearing_optional_monitoring_fields_overrides_old_entry_data(self):
+        entry = types.SimpleNamespace(entry_id="car1", title="Bil", data={
+            "power_entity": "sensor.old_power", "energy_entity": "sensor.old_energy",
+            "notify_entity": "notify.old_phone",
+        }, options={})
+        self.hass.config_entries.async_update_entry = lambda *args, **kwargs: None
+        options = self.flow.MotorvarmareOptionsFlow(entry)
+        options.hass = self.hass
+        options.async_create_entry = lambda **kwargs: kwargs
+        result = finish(options.async_step_init({
+            "name": "Bil", "switch_entity": "switch.car",
+            "temperature_entity": "sensor.outside",
+            "power_min_watts": 12, "power_delay_minutes": 5,
+            "power_alarm_enabled": False,
+        }))["data"]
+        self.assertEqual(result["power_entity"], "")
+        self.assertEqual(result["energy_entity"], "")
+        self.assertEqual(result["notify_entity"], "")
+        merged = {**entry.data, **result}
+        self.assertEqual(merged["power_entity"], "")
+        self.assertEqual(merged["energy_entity"], "")
+        self.assertEqual(merged["notify_entity"], "")
+        self.assertEqual(merged["power_min_watts"], 12)
+        self.assertIs(merged["power_alarm_enabled"], False)
+
 
 if __name__ == "__main__":
     unittest.main()

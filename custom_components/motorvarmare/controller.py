@@ -21,6 +21,7 @@ from .const import (
     DOMAIN, CONF_SWITCH, CONF_TEMPERATURE, CONF_CALENDAR, CONF_TAG,
     DEFAULT_TAG,
 )
+from .energy import EnergyMonitor
 
 _LOGGER = logging.getLogger(__name__)
 _MAX_RUNTIME = timedelta(hours=4)
@@ -93,6 +94,7 @@ class HeaterController:
         self._calendar_error = None
         self._lock = asyncio.Lock()
         self._unsub = None
+        self.energy = EnergyMonitor(hass, entry, self.config, self._notify)
 
     def _notify(self):
         async_dispatcher_send(self.hass, f"{DOMAIN}_{self.entry.entry_id}")
@@ -106,6 +108,10 @@ class HeaterController:
 
     async def async_load(self):
         data = await self.store.async_load() or {}
+        try:
+            await self.energy.async_load()
+        except Exception:
+            _LOGGER.exception("Unable to restore energy monitoring for %s", self.entry.title)
         self.manual_departure = self._parse(data.get("manual_departure"))
         self.local_departures = []
         for item in data.get("local_departures", []):
@@ -325,6 +331,10 @@ class HeaterController:
 
     async def async_start(self):
         self._unsub = async_track_time_interval(self.hass, self._tick, timedelta(minutes=1))
+        try:
+            await self.energy.async_start()
+        except Exception:
+            _LOGGER.exception("Unable to start energy monitoring for %s", self.entry.title)
         await self.async_update()
 
     @callback
@@ -340,6 +350,10 @@ class HeaterController:
             if self._unsub:
                 self._unsub()
                 self._unsub = None
+            try:
+                await self.energy.async_shutdown()
+            except Exception:
+                _LOGGER.exception("Unable to stop energy monitoring for %s", self.entry.title)
             return True
 
     async def _turn_off(self):
@@ -505,6 +519,13 @@ class HeaterController:
                 self.status = "Fel"
                 _LOGGER.exception("Error updating heater for %s", self.entry.title)
             self._notify()
+        # Monitoring is independent: a missing sensor or notification service
+        # must never prevent the heater scheduler from running or switching off.
+        if self.energy.power_configured or self.energy.energy_configured:
+            try:
+                await self.energy.async_update()
+            except Exception:
+                _LOGGER.exception("Error monitoring energy for %s", self.entry.title)
 
     async def _update_locked(self):
         now = dt_util.utcnow()

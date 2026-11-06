@@ -10,11 +10,23 @@
           "temperature_entity": "Sensor för utetemperatur",
           "calendar_entity": "Kalender (valfritt)",
           "event_titles": "Exakta händelsetitlar (valfritt)",
-          "event_keywords": "Ord eller taggar (valfritt)"
+          "event_keywords": "Ord eller taggar (valfritt)",
+          "power_entity": "Effektsensor (valfritt)",
+          "energy_entity": "Energisensor (valfritt)",
+          "power_min_watts": "Gräns för låg effekt",
+          "power_delay_minutes": "Väntetid innan larm",
+          "notify_entity": "Mottagare för notis (valfritt)",
+          "power_alarm_enabled": "Aktivera larm vid låg effekt"
         },
         "data_description": {
           "event_titles": "Ange fullständiga händelsetitlar, en per rad eller separerade med kommatecken. Exempel: TILL JOBBET. Mellanslag får ingå.",
-          "event_keywords": "Ange ord, fraser eller taggar, en per rad eller separerade med kommatecken. En titel eller ett ord/en tagg räcker för träff. Stora och små bokstäver behandlas lika."
+          "event_keywords": "Ange ord, fraser eller taggar, en per rad eller separerade med kommatecken. En titel eller ett ord/en tagg räcker för träff. Stora och små bokstäver behandlas lika.",
+          "power_entity": "Välj pluggens effektsensor i W eller kW. En effektsensor behövs för att varna när värmaren använder för lite effekt.",
+          "energy_entity": "Välj pluggens ackumulerande energisensor i Wh eller kWh för att visa energin som används under uppvärmningen.",
+          "power_min_watts": "Effekt under den här gränsen räknas som låg.",
+          "power_delay_minutes": "Larma först när effekten har varit låg så här länge medan värmaren är på.",
+          "notify_entity": "Välj en notisentitet, till exempel din telefon, om du även vill få en mobilnotis. När larmet är aktiverat visas alltid en notis i Home Assistant.",
+          "power_alarm_enabled": "Varna när värmaren är på men effekten förblir under gränsen. Energiövervakningen fungerar även om larmet är avstängt."
         }
       }
     },
@@ -36,11 +48,23 @@
           "temperature_entity": "Sensor för utetemperatur",
           "calendar_entity": "Kalender (valfritt)",
           "event_titles": "Exakta händelsetitlar (valfritt)",
-          "event_keywords": "Ord eller taggar (valfritt)"
+          "event_keywords": "Ord eller taggar (valfritt)",
+          "power_entity": "Effektsensor (valfritt)",
+          "energy_entity": "Energisensor (valfritt)",
+          "power_min_watts": "Gräns för låg effekt",
+          "power_delay_minutes": "Väntetid innan larm",
+          "notify_entity": "Mottagare för notis (valfritt)",
+          "power_alarm_enabled": "Aktivera larm vid låg effekt"
         },
         "data_description": {
           "event_titles": "Ange fullständiga händelsetitlar, en per rad eller separerade med kommatecken. Exempel: TILL JOBBET. Mellanslag får ingå.",
-          "event_keywords": "Ange ord, fraser eller taggar, en per rad eller separerade med kommatecken. En titel eller ett ord/en tagg räcker för träff. Stora och små bokstäver behandlas lika."
+          "event_keywords": "Ange ord, fraser eller taggar, en per rad eller separerade med kommatecken. En titel eller ett ord/en tagg räcker för träff. Stora och små bokstäver behandlas lika.",
+          "power_entity": "Välj pluggens effektsensor i W eller kW. En effektsensor behövs för att varna när värmaren använder för lite effekt.",
+          "energy_entity": "Välj pluggens ackumulerande energisensor i Wh eller kWh för att visa energin som används under uppvärmningen.",
+          "power_min_watts": "Effekt under den här gränsen räknas som låg.",
+          "power_delay_minutes": "Larma först när effekten har varit låg så här länge medan värmaren är på.",
+          "notify_entity": "Välj en notisentitet, till exempel din telefon, om du även vill få en mobilnotis. När larmet är aktiverat visas alltid en notis i Home Assistant.",
+          "power_alarm_enabled": "Varna när värmaren är på men effekten förblir under gränsen. Energiövervakningen fungerar även om larmet är avstängt."
         }
       }
     },
