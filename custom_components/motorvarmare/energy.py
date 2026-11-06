@@ -17,6 +17,7 @@ from .const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 _POWER_UNITS = {"mW": 0.001, "W": 1.0, "kW": 1000.0, "MW": 1000000.0}
 _ENERGY_UNITS = {"mWh": 0.000001, "Wh": 0.001, "kWh": 1.0, "MWh": 1000.0}
+_HISTORY_LIMIT = 100
 
 
 def _read_number(state, units, *, cumulative=False):
@@ -49,6 +50,8 @@ class EnergyMonitor:
         self._lock = asyncio.Lock()
         self._unsub = None
         self._stopped = False
+        self._stopping = False
+        self._pending_updates = []
         self._session_active = False
         self._saw_off = False
         self._switch_changed = None
@@ -62,6 +65,16 @@ class EnergyMonitor:
         self._last_attempt = {}
         self._power_epoch = 0
         self.alarm_active = False
+        self._history = []
+        self._history_start = None
+        self._history_time_complete = False
+        self._observed_switch = None
+        self._restored_session = False
+
+    @property
+    def heating_history(self):
+        """Return recent completed sessions, newest first, without exposing internals."""
+        return [dict(item) for item in reversed(self._history)]
 
     @property
     def power_configured(self):
@@ -136,14 +149,31 @@ class EnergyMonitor:
             "invalid": self._invalid,
             "persistent_sent": self._persistent_sent,
             "mobile_sent": self._mobile_sent,
+            "heating_history": self._history[-_HISTORY_LIMIT:],
+            "history_start": self._history_start,
+            "history_time_complete": self._history_time_complete,
         }
 
     async def async_load(self):
         """Restore session data only for the same switch and energy sensor."""
         data = await self.store.async_load() or {}
+        history = data.get("heating_history", [])
+        if isinstance(history, list):
+            self._history = [item for item in history if isinstance(item, dict)][-_HISTORY_LIMIT:]
         if data.get("switch_entity") != self.config.get("switch_entity"):
+            # A changed switch cannot inherit an active run from the old
+            # device. Preserve the observed start as an incomplete record.
+            if data.get("session_active"):
+                start = data.get("history_start")
+                self._history_start = start if self._history_datetime(start) else None
+                self._finish_history(None)
+                await self._save()
             return
         self._session_active = bool(data.get("session_active"))
+        self._restored_session = self._session_active
+        self._history_start = data.get("history_start") if isinstance(data.get("history_start"), str) else None
+        # While HA was stopped an unobserved switch cycle may have occurred.
+        self._history_time_complete = False
         self._switch_changed = data.get("switch_changed")
         if data.get("power_entity") == self.config.get("power_entity"):
             self._persistent_sent = bool(data.get("persistent_sent"))
@@ -165,11 +195,10 @@ class EnergyMonitor:
         self._low_since = None
 
     async def async_start(self):
-        if not (self.power_configured or self.energy_configured):
-            return
         from homeassistant.helpers.event import async_track_state_change_event
 
         self._stopped = False
+        self._stopping = False
         entities = {self.config.get("switch_entity"), self.config.get("power_entity"), self.config.get("energy_entity")}
         current_switch = self.hass.states.get(self.config.get("switch_entity"))
         if current_switch and current_switch.state == "off":
@@ -201,21 +230,30 @@ class EnergyMonitor:
                 # and stop readings even while notification I/O holds the lock.
                 snapshot = {"switch": self.hass.states.get(self.config.get("switch_entity")),
                             "power": self.hass.states.get(self.config.get("power_entity")),
-                            "energy": self.hass.states.get(self.config.get("energy_entity"))}
+                            "energy": self.hass.states.get(self.config.get("energy_entity")),
+                            "observed_at": dt_util.utcnow().isoformat(),
+                            "switch_event": switch_event}
                 if switch_event:
                     snapshot["switch"] = new_state
                 elif entity == self.config.get("power_entity"):
                     snapshot["power"] = new_state
                 elif entity == self.config.get("energy_entity"):
                     snapshot["energy"] = new_state
-                self.hass.async_create_task(self._safe_update(snapshot))
+                self._queue_update(snapshot)
 
         self._unsub = async_track_state_change_event(self.hass, [entity for entity in entities if entity], changed)
         # Do not delay the heater scheduler on storage or notification I/O.
         initial = {"switch": self.hass.states.get(self.config.get("switch_entity")),
                    "power": self.hass.states.get(self.config.get("power_entity")),
-                   "energy": self.hass.states.get(self.config.get("energy_entity"))}
-        self.hass.async_create_task(self._safe_update(initial))
+                   "energy": self.hass.states.get(self.config.get("energy_entity")),
+                   "observed_at": dt_util.utcnow().isoformat(), "initial": True}
+        self._queue_update(initial)
+
+    def _queue_update(self, snapshot):
+        task = self.hass.async_create_task(self._safe_update(snapshot))
+        if task is not None and hasattr(task, "add_done_callback"):
+            self._pending_updates.append(task)
+            task.add_done_callback(self._pending_updates.remove)
 
     async def _safe_update(self, *args):
         try:
@@ -224,10 +262,16 @@ class EnergyMonitor:
             _LOGGER.exception("Energy monitoring failed for %s", self.entry.title)
 
     async def async_shutdown(self):
-        self._stopped = True
+        # Unsubscribe first and drain observations already captured before
+        # recording the final state. Suppress new alerts while unloading.
+        self._stopping = True
         if self._unsub:
             self._unsub()
             self._unsub = None
+        pending = tuple(self._pending_updates)
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        self._stopped = True
         await self.async_update(force=True)
 
     async def _save(self):
@@ -238,10 +282,36 @@ class EnergyMonitor:
         value = getattr(state, "last_changed", None)
         return value.isoformat() if value is not None else None
 
+    @staticmethod
+    def _history_datetime(value):
+        if not isinstance(value, str):
+            return None
+        try:
+            parsed = dt_util.parse_datetime(value)
+            return dt_util.as_utc(parsed) if parsed and parsed.tzinfo else None
+        except (ValueError, TypeError, OverflowError):
+            return None
+
+    def _finish_history(self, end):
+        """Record only observations we can justify; unknown is not zero."""
+        start_dt, end_dt = self._history_datetime(self._history_start), self._history_datetime(end)
+        complete = bool(self._history_time_complete and start_dt and end_dt and end_dt >= start_dt)
+        self._history.append({
+            "start": self._history_start,
+            "end": end if end_dt else None,
+            "duration_minutes": round((end_dt - start_dt).total_seconds() / 60, 1) if complete else None,
+            "energy_kwh": self.session_energy_kwh if self.energy_configured else None,
+            "complete": complete,
+        })
+        self._history = self._history[-_HISTORY_LIMIT:]
+        self._history_start = None
+        self._history_time_complete = False
+
     async def async_update(self, snapshot=None, force=False):
         """Process one observation. Called from events and the periodic tick."""
-        if (self._stopped and not force) or not (self.power_configured or self.energy_configured):
+        if self._stopped and not force:
             return
+        observed_at = (snapshot or {}).get("observed_at") or dt_util.utcnow().isoformat()
         async with self._lock:
             if self._stopped and not force:
                 return
@@ -258,12 +328,14 @@ class EnergyMonitor:
                 # while HA was unavailable; do not reuse an old baseline.
                 new_session = not self._session_active or (changed_at and self._switch_changed and changed_at != self._switch_changed)
                 if new_session:
+                    was_active = self._session_active
+                    saw_off_before = self._saw_off
                     self._session_active = True
                     self._switch_changed = changed_at
                     # If HA first sees an already-on plug there is no known
                     # start reading; a partial measurement must not be
                     # presented as consumption for the whole session.
-                    self._baseline = meter if self._saw_off else None
+                    self._baseline = meter if saw_off_before else None
                     self._last_meter = self._baseline
                     self._session_energy = 0.0 if self._baseline is not None else None
                     self._invalid = self.energy_configured and self._baseline is None
@@ -272,6 +344,15 @@ class EnergyMonitor:
                     self._persistent_sent = self._mobile_sent = False
                     self._last_attempt = {}
                     self.alarm_active = False
+                    if not was_active:
+                        # An already-on switch seen at startup has an unknown
+                        # true start. Only an observed off->on establishes it.
+                        self._history_start = (changed_at or observed_at) if saw_off_before else None
+                        self._history_time_complete = self._history_start is not None
+                    else:
+                        # on->unknown->on (or a restart) can hide a cycle;
+                        # keep one uncertain record rather than inventing two.
+                        self._history_time_complete = False
                     changed = True
                 if self.energy_configured and meter is None and not self._invalid:
                     # A reset can occur while a sensor is unavailable, so
@@ -313,6 +394,11 @@ class EnergyMonitor:
                         else:
                             self._last_meter = meter
                             self._session_energy = max(0.0, meter - self._baseline)
+                    # The first off state after a restart, or after an unknown
+                    # switch state, does not reveal when the switch went off.
+                    end_known = not self._restored_session and self._observed_switch != "unknown"
+                    end = (self._changed_at(switch) or observed_at) if end_known else None
+                    self._finish_history(end)
                     self._session_active = False
                     changed = True
                 self._low_since = None
@@ -326,8 +412,16 @@ class EnergyMonitor:
                     self._invalid = True
                     self._session_energy = None
                     changed = True
+                if self._session_active and self._history_time_complete:
+                    self._history_time_complete = False
+                    changed = True
+                # An off reading before a connectivity gap does not prove
+                # that a later on reading coincided with its actual start.
+                self._saw_off = False
                 self._low_since = None
                 self.alarm_active = False
+            self._observed_switch = "on" if on else "off" if off else "unknown"
+            self._restored_session = False
             if changed:
                 await self._save()
         self._notify()
@@ -347,7 +441,7 @@ class EnergyMonitor:
         for channel, domain, service, data in targets:
             current_switch = self.hass.states.get(self.config.get("switch_entity"))
             current_power = self.power_w
-            if (self._stopped or power_epoch != self._power_epoch or not current_switch or current_switch.state != "on"
+            if (self._stopped or self._stopping or power_epoch != self._power_epoch or not current_switch or current_switch.state != "on"
                     or current_power is None or current_power >= self._threshold() or self._low_since is None):
                 self.alarm_active = False
                 break

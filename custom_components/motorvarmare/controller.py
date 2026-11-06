@@ -521,11 +521,10 @@ class HeaterController:
             self._notify()
         # Monitoring is independent: a missing sensor or notification service
         # must never prevent the heater scheduler from running or switching off.
-        if self.energy.power_configured or self.energy.energy_configured:
-            try:
-                await self.energy.async_update()
-            except Exception:
-                _LOGGER.exception("Error monitoring energy for %s", self.entry.title)
+        try:
+            await self.energy.async_update()
+        except Exception:
+            _LOGGER.exception("Error monitoring energy for %s", self.entry.title)
 
     async def _update_locked(self):
         now = dt_util.utcnow()
