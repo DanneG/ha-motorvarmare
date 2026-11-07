@@ -23,6 +23,7 @@ _STATUS_KEYS = {
     "Väntar på start": "waiting_to_start",
     "Brytaren var redan på": "already_on",
     "Manuellt avstängd för denna avresa": "manually_stopped",
+    "Pausad": "paused",
 }
 
 
@@ -84,9 +85,15 @@ class HeaterStatus(SensorEntity):
             "error": controller.error,
             "owned": controller.owned,
             "active_until": controller.active_until,
+            "automation_paused": getattr(controller, "automation_paused", False),
+            "pause_until": getattr(controller, "pause_until", None),
+            "skipped_departure": getattr(controller, "skipped_departure", None),
+            "operational_problems": sorted(getattr(controller, "_operational_problems", lambda: set())()),
+            "weather_enabled": bool(controller.config.get("weather_entity")),
             "schedule_7_days": controller.schedule_7_days,
             "power_sensor_configured": energy.power_configured if energy else False,
             "energy_sensor_configured": energy.energy_configured if energy else False,
+            "cost_configured": energy.cost_configured if energy else False,
             "energy_sensor_available": energy.energy_sensor_available if energy else False,
             "power_w": energy.power_w if energy else None,
             "session_energy_kwh": energy.session_energy_kwh if energy else None,
@@ -102,6 +109,9 @@ class HeaterStatus(SensorEntity):
                 "clear_departure": entity_id("button", "clear_departure"),
                 "start_now": entity_id("button", "start_now"),
                 "stop_now": entity_id("button", "stop_now"),
+                "skip_next": entity_id("button", "skip_next"),
+                "automation_paused": entity_id("switch", "automation_paused"),
+                "pause_until": entity_id("datetime", "pause_until"),
                 "calendar": entity_id("calendar", "departure_calendar"),
                 "heater_switch": controller.config.get("switch_entity"),
                 "weekly_times": [entity_id("time", f"weekly_time_{day}") for day in range(7)],

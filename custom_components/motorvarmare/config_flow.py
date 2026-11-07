@@ -21,6 +21,12 @@ from .const import (
     CONF_POWER_DELAY_MINUTES,
     CONF_POWER_ALARM_ENABLED,
     CONF_NOTIFY_ENTITY,
+    CONF_WEATHER_ENTITY,
+    CONF_ENERGY_PRICE,
+    CONF_ENERGY_PRICE_ENTITY,
+    CONF_ENERGY_CURRENCY,
+    CONF_OPERATION_ALERTS_ENABLED,
+    CONF_TEMPERATURE_MAX_AGE_HOURS,
     CONF_POST_DEPARTURE_ENABLED,
     DEFAULT_POWER_MIN_WATTS,
     DEFAULT_POWER_DELAY_MINUTES,
@@ -70,6 +76,9 @@ def _schema(values: dict[str, Any] | None = None) -> vol.Schema:
             calendar_field: selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="calendar")
             ),
+            optional_entity(CONF_WEATHER_ENTITY): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="weather")
+            ),
             text_field(CONF_EVENT_TITLES): multiline,
             text_field(CONF_EVENT_KEYWORDS): multiline,
             optional_entity(CONF_POWER_ENTITY): selector.EntitySelector(
@@ -78,6 +87,15 @@ def _schema(values: dict[str, Any] | None = None) -> vol.Schema:
             optional_entity(CONF_ENERGY_ENTITY): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
+            optional_entity(CONF_ENERGY_PRICE_ENTITY): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Optional(CONF_ENERGY_PRICE, description={"suggested_value": values[CONF_ENERGY_PRICE]} if values.get(CONF_ENERGY_PRICE) is not None else {}):
+                selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=100000, step="any", mode=selector.NumberSelectorMode.BOX)),
+            vol.Required(CONF_ENERGY_CURRENCY, default=values.get(CONF_ENERGY_CURRENCY) or "SEK"): str,
+            vol.Required(CONF_OPERATION_ALERTS_ENABLED, default=values.get(CONF_OPERATION_ALERTS_ENABLED, False)): bool,
+            vol.Required(CONF_TEMPERATURE_MAX_AGE_HOURS, default=values.get(CONF_TEMPERATURE_MAX_AGE_HOURS, 12)):
+                selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=720, step="any", mode=selector.NumberSelectorMode.BOX, unit_of_measurement="h")),
             vol.Required(CONF_POWER_ALARM_ENABLED, default=values.get(CONF_POWER_ALARM_ENABLED, DEFAULT_POWER_ALARM_ENABLED)): bool,
             vol.Required(CONF_POWER_MIN_WATTS, default=values.get(CONF_POWER_MIN_WATTS, DEFAULT_POWER_MIN_WATTS)):
                 selector.NumberSelector(selector.NumberSelectorConfig(
@@ -115,6 +133,10 @@ def _error(
     user_input[CONF_TAG] = old_tag if old_tag.casefold() in keyword_items else ""
     if not user_input[CONF_NAME]:
         return "invalid_name"
+    currency = str(user_input.get(CONF_ENERGY_CURRENCY) or "SEK").strip().upper()
+    if not re.fullmatch(r"[A-Z]{3}", currency):
+        return "invalid_currency"
+    user_input[CONF_ENERGY_CURRENCY] = currency
     if user_input.get(CONF_CALENDAR) and not any(
         user_input[key].replace(",", "").strip()
         for key in (CONF_EVENT_TITLES, CONF_EVENT_KEYWORDS)
@@ -131,8 +153,10 @@ def _error(
 
 def _normalize_optional_entities(user_input: dict[str, Any]) -> None:
     """Store cleared values explicitly, so old entry data cannot reappear."""
-    for key in (CONF_CALENDAR, CONF_POWER_ENTITY, CONF_ENERGY_ENTITY, CONF_NOTIFY_ENTITY):
+    for key in (CONF_CALENDAR, CONF_POWER_ENTITY, CONF_ENERGY_ENTITY, CONF_NOTIFY_ENTITY, CONF_WEATHER_ENTITY, CONF_ENERGY_PRICE_ENTITY):
         user_input[key] = user_input.get(key) or ""
+    # An explicit None removes a price inherited from the original entry data.
+    user_input[CONF_ENERGY_PRICE] = user_input.get(CONF_ENERGY_PRICE)
 
 
 class MotorvarmareConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):

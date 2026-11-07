@@ -17,7 +17,13 @@
           "power_delay_minutes": "Delay before low-power warning",
           "notify_entity": "Notification recipient (optional)",
           "post_departure_enabled": "Continue heating for 30 minutes after departure",
-          "power_alarm_enabled": "Enable low-power warning"
+          "power_alarm_enabled": "Enable low-power warning",
+          "weather_entity": "Weather forecast (optional)",
+          "energy_price_entity": "Electricity price sensor (optional)",
+          "energy_price": "Fixed electricity price per kWh (optional)",
+          "energy_currency": "Currency",
+          "operation_alerts_enabled": "Notify about operational problems",
+          "temperature_max_age_hours": "Warn when the temperature reading is older than"
         },
         "data_description": {
           "event_titles": "Enter complete event titles, one per line or separated by commas. For example: TILL JOBBET. Spaces are allowed.",
@@ -28,7 +34,13 @@
           "power_delay_minutes": "Warn only after power has remained low for this long while the heater is on.",
           "notify_entity": "Choose a notification entity, such as your phone, to also receive a push notification. When alerts are enabled, Home Assistant always receives a notification.",
           "post_departure_enabled": "Keep scheduled heating on for 30 minutes after departure, in addition to pre-departure heating. Does not apply to Start now; the temperature limit still applies.",
-          "power_alarm_enabled": "Warn when the heater is on but power remains below the threshold. Turning this off does not disable energy monitoring."
+          "power_alarm_enabled": "Warn when the heater is on but power remains below the threshold. Turning this off does not disable energy monitoring.",
+          "weather_entity": "Use hourly forecasts for estimated future calendar times. The measured outdoor temperature still controls the heater.",
+          "energy_price_entity": "If selected, the sensor price at the end of the session is used for an estimate and takes priority over the fixed price.",
+          "energy_price": "Set a fixed price per kWh in the selected currency. Leave empty to disable estimated costs.",
+          "energy_currency": "Three-letter currency code, such as SEK or EUR.",
+          "operation_alerts_enabled": "Notify in Home Assistant and the selected notification target when the switch, temperature or calendar has a problem.",
+          "temperature_max_age_hours": "Set to 0 to disable age warnings. Sensors report at different intervals."
         }
       }
     },
@@ -36,7 +48,8 @@
       "invalid_name": "Enter a car name.",
       "invalid_tag": "Enter a non-empty calendar tag.",
       "missing_calendar_rule": "Enter a title, word or tag for the selected calendar.",
-      "duplicate_switch": "This switch is already used by another car."
+      "duplicate_switch": "This switch is already used by another car.",
+      "invalid_currency": "Enter a three-letter currency code, such as SEK."
     }
   },
   "options": {
@@ -57,7 +70,13 @@
           "power_delay_minutes": "Delay before low-power warning",
           "notify_entity": "Notification recipient (optional)",
           "post_departure_enabled": "Continue heating for 30 minutes after departure",
-          "power_alarm_enabled": "Enable low-power warning"
+          "power_alarm_enabled": "Enable low-power warning",
+          "weather_entity": "Weather forecast (optional)",
+          "energy_price_entity": "Electricity price sensor (optional)",
+          "energy_price": "Fixed electricity price per kWh (optional)",
+          "energy_currency": "Currency",
+          "operation_alerts_enabled": "Notify about operational problems",
+          "temperature_max_age_hours": "Warn when the temperature reading is older than"
         },
         "data_description": {
           "event_titles": "Enter complete event titles, one per line or separated by commas. For example: TILL JOBBET. Spaces are allowed.",
@@ -68,7 +87,13 @@
           "power_delay_minutes": "Warn only after power has remained low for this long while the heater is on.",
           "notify_entity": "Choose a notification entity, such as your phone, to also receive a push notification. When alerts are enabled, Home Assistant always receives a notification.",
           "post_departure_enabled": "Keep scheduled heating on for 30 minutes after departure, in addition to pre-departure heating. Does not apply to Start now; the temperature limit still applies.",
-          "power_alarm_enabled": "Warn when the heater is on but power remains below the threshold. Turning this off does not disable energy monitoring."
+          "power_alarm_enabled": "Warn when the heater is on but power remains below the threshold. Turning this off does not disable energy monitoring.",
+          "weather_entity": "Use hourly forecasts for estimated future calendar times. The measured outdoor temperature still controls the heater.",
+          "energy_price_entity": "If selected, the sensor price at the end of the session is used for an estimate and takes priority over the fixed price.",
+          "energy_price": "Set a fixed price per kWh in the selected currency. Leave empty to disable estimated costs.",
+          "energy_currency": "Three-letter currency code, such as SEK or EUR.",
+          "operation_alerts_enabled": "Notify in Home Assistant and the selected notification target when the switch, temperature or calendar has a problem.",
+          "temperature_max_age_hours": "Set to 0 to disable age warnings. Sensors report at different intervals."
         }
       }
     },
@@ -76,7 +101,8 @@
       "invalid_name": "Enter a car name.",
       "invalid_tag": "Enter a non-empty calendar tag.",
       "missing_calendar_rule": "Enter a title, word or tag for the selected calendar.",
-      "duplicate_switch": "This switch is already used by another car."
+      "duplicate_switch": "This switch is already used by another car.",
+      "invalid_currency": "Enter a three-letter currency code, such as SEK."
     }
   },
   "entity": {
@@ -88,6 +114,9 @@
     "datetime": {
       "manual_departure": {
         "name": "Manual departure"
+      },
+      "pause_until": {
+        "name": "Pause until"
       }
     },
     "button": {
@@ -99,6 +128,9 @@
       },
       "stop_now": {
         "name": "Stop"
+      },
+      "skip_next": {
+        "name": "Skip next departure"
       }
     },
     "sensor": {
@@ -113,7 +145,8 @@
           "no_heating_needed": "No heating needed",
           "waiting_to_start": "Waiting to start",
           "already_on": "Switch was already on",
-          "manually_stopped": "Manually stopped for this departure"
+          "manually_stopped": "Manually stopped for this departure",
+          "paused": "Paused"
         }
       }
     },
@@ -161,6 +194,9 @@
       },
       "weekly_enabled_sunday": {
         "name": "Sunday weekly schedule"
+      },
+      "automation_paused": {
+        "name": "Pause automatic heating"
       }
     }
   },
@@ -206,6 +242,12 @@
     },
     "timezone_required": {
       "message": "The departure time must include a time zone."
+    },
+    "no_departure_to_skip": {
+      "message": "There is no upcoming departure to skip."
+    },
+    "pause_until_past": {
+      "message": "Choose a future time to resume."
     }
   }
 }

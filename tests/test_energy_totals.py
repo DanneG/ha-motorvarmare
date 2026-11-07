@@ -5,7 +5,7 @@ import types
 import unittest
 
 import test_controller as mocks
-from test_motorvarmare.energy import EnergyMonitor, history_energy_totals
+from test_motorvarmare.energy import EnergyMonitor, history_energy_totals, _HISTORY_LIMIT, _TOTAL_LIMITS
 
 
 ZONE = timezone(timedelta(hours=1))
@@ -74,18 +74,18 @@ class EnergyTotalsTests(unittest.TestCase):
 
     def test_capped_history_marks_oldest_period_and_limits_groups(self):
         history = []
-        for i in range(100):
-            moment = datetime(2026, 9, 1, 8, tzinfo=ZONE) + timedelta(days=i)
+        for i in range(_HISTORY_LIMIT):
+            moment = datetime(2025, 11, 1, 8, tzinfo=ZONE) + timedelta(days=i * 400 // _HISTORY_LIMIT)
             history.append(session((moment-timedelta(minutes=30)).isoformat(), moment.isoformat(), 1.0))
         totals = history_energy_totals(history, NOW, ZONE)
-        self.assertEqual(len(totals["daily"]), 32)
+        self.assertEqual(len(totals["daily"]), _TOTAL_LIMITS["daily"])
         self.assertTrue(totals["has_older"]["daily"])
         self.assertTrue(any(item["truncated"] for item in totals["weekly"]))
 
     def test_truncation_is_conservative_when_oldest_end_is_unknown(self):
         history = [session(None, None, None, False)] + [
             session("2027-01-02T07:00:00+01:00", "2027-01-02T08:00:00+01:00", 0.1)
-            for _ in range(99)
+            for _ in range(_HISTORY_LIMIT - 1)
         ]
         totals = history_energy_totals(history, NOW, ZONE)
         self.assertTrue(totals["daily"][0]["truncated"])

@@ -7,7 +7,7 @@ import types
 import unittest
 
 import test_controller as mocks
-from test_motorvarmare.energy import EnergyMonitor
+from test_motorvarmare.energy import EnergyMonitor, _HISTORY_LIMIT
 
 
 class HeatingHistoryTests(unittest.TestCase):
@@ -140,12 +140,12 @@ class HeatingHistoryTests(unittest.TestCase):
     @mocks.sync_test
     async def test_history_is_bounded_and_newest_first(self):
         await self.state("off")
-        for _ in range(105):
+        for _ in range(_HISTORY_LIMIT + 5):
             await self.state("on")
             self.advance(1)
             await self.state("off")
         items = self.monitor.heating_history
-        self.assertEqual(len(items), 100)
+        self.assertEqual(len(items), _HISTORY_LIMIT)
         self.assertGreater(items[0]["start"], items[-1]["start"])
         restored = EnergyMonitor(self.hass, self.entry, self.config, lambda: None)
         await restored.async_load()

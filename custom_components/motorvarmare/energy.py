@@ -17,8 +17,9 @@ from .const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 _POWER_UNITS = {"mW": 0.001, "W": 1.0, "kW": 1000.0, "MW": 1000000.0}
 _ENERGY_UNITS = {"mWh": 0.000001, "Wh": 0.001, "kWh": 1.0, "MWh": 1000.0}
-_HISTORY_LIMIT = 100
-_TOTAL_LIMITS = {"daily": 32, "weekly": 16, "monthly": 12}
+_HISTORY_LIMIT = 1000
+_LEGACY_HISTORY_LIMIT = 100
+_TOTAL_LIMITS = {"daily": 366, "weekly": 104, "monthly": 36}
 
 
 def _period_start(day, kind):
@@ -49,7 +50,7 @@ def _history_local_day(value, zone):
         return None
 
 
-def history_energy_totals(history, now, zone):
+def history_energy_totals(history, now, zone, previous_history_truncated=False):
     """Summarize recorded finished sessions without inventing energy data.
 
     The input is bounded session history, not a meter's lifetime total. All
@@ -68,7 +69,8 @@ def history_energy_totals(history, now, zone):
         key = _period_start(day, kind)
         return groups[kind].setdefault(key, {
             "period_start": key.isoformat(), "_values": [], "sessions": 0,
-            "missing_energy": 0, "crossed_boundary": False,
+            "missing_energy": 0, "missing_cost": 0,
+            "_costs": [], "_currencies": set(), "crossed_boundary": False,
             "truncated": False, "coverage_incomplete": False,
         })
 
@@ -93,6 +95,11 @@ def history_energy_totals(history, now, zone):
             continue
         value = item.get("energy_kwh")
         valid = isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0
+        cost, currency = item.get("estimated_cost"), item.get("cost_currency")
+        valid_cost = (isinstance(cost, (int, float)) and not isinstance(cost, bool)
+                      and math.isfinite(cost) and isinstance(currency, str)
+                      and len(currency) == 3 and currency.isascii() and currency.isalpha()
+                      and currency == currency.upper())
         for kind in groups:
             b = bucket(kind, end)
             b["sessions"] += 1
@@ -100,6 +107,11 @@ def history_energy_totals(history, now, zone):
                 b["_values"].append(float(value))
             else:
                 b["missing_energy"] += 1
+            if valid_cost:
+                b["_costs"].append(float(cost))
+                b["_currencies"].add(currency)
+            else:
+                b["missing_cost"] += 1
             if not item.get("complete"):
                 b["coverage_incomplete"] = True
             if start and start <= end:
@@ -129,9 +141,9 @@ def history_energy_totals(history, now, zone):
               "limits": dict(_TOTAL_LIMITS), "has_older": {}}
     first_observed = min(observed_starts) if observed_starts else None
     for kind, entries in groups.items():
-        if oldest_end and len(history) >= _HISTORY_LIMIT:
+        if oldest_end and (len(history) >= _HISTORY_LIMIT or previous_history_truncated):
             bucket(kind, oldest_end)["truncated"] = True
-        elif len(history) >= _HISTORY_LIMIT:
+        elif len(history) >= _HISTORY_LIMIT or previous_history_truncated:
             # The oldest retained record has no known end, so its true period
             # and the point at which older sessions were dropped are unknown.
             for b in entries.values():
@@ -162,6 +174,17 @@ def history_energy_totals(history, now, zone):
             b["energy_kwh"] = round(total, 4) if total is not None else None
             b["incomplete"] = bool(b["missing_energy"] or b["crossed_boundary"]
                                     or b["truncated"] or b["coverage_incomplete"])
+            costs, currencies = b.pop("_costs"), b.pop("_currencies")
+            try:
+                cost_total = math.fsum(costs) if costs and len(currencies) == 1 else None
+            except OverflowError:
+                cost_total = None
+            if cost_total is not None and not math.isfinite(cost_total):
+                cost_total = None
+            b["estimated_cost"] = round(cost_total, 4) if cost_total is not None else None
+            b["cost_currency"] = next(iter(currencies)) if len(currencies) == 1 else None
+            b["cost_incomplete"] = bool(b["incomplete"] or b["missing_cost"] or len(currencies) > 1
+                                        or (costs and cost_total is None))
         ordered = [entries[key] for key in sorted(entries, reverse=True)]
         result["has_older"][kind] = len(ordered) > _TOTAL_LIMITS[kind]
         result[kind] = ordered[:_TOTAL_LIMITS[kind]]
@@ -183,6 +206,58 @@ def _read_number(state, units, *, cumulative=False):
     except (TypeError, ValueError, OverflowError):
         return None
     return result if math.isfinite(result) and result >= 0 else None
+
+
+def _currency(value):
+    """Validate the configured currency rather than guessing one from a sensor."""
+    if not isinstance(value, str):
+        return None
+    result = value.strip().upper()
+    return result if len(result) == 3 and result.isascii() and result.isalpha() else None
+
+
+def _finite_number(value):
+    if isinstance(value, bool):
+        return None
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return result if math.isfinite(result) else None
+
+
+def _read_price(state, currency):
+    """Read a price per kWh only when its unit agrees with the currency.
+
+    A spot price can legitimately be negative. Ambiguous units or an
+    unavailable sensor must not silently fall back to another price.
+    """
+    currency = _currency(currency)
+    if state is None or currency is None:
+        return None
+    unit = state.attributes.get("unit_of_measurement")
+    if not isinstance(unit, str):
+        return None
+    unit = "".join(unit.split())
+    if "/" not in unit:
+        return None
+    numerator, denominator = unit.split("/", 1)
+    if denominator not in ("kWh", "MWh"):
+        return None
+    scale = 1.0 if denominator == "kWh" else 0.001
+    if numerator.upper() == currency:
+        pass
+    elif currency == "SEK" and numerator.casefold() in ("kr", "kronor"):
+        pass
+    elif currency == "SEK" and numerator.casefold() in ("öre", "ore"):
+        scale *= 0.01
+    elif (currency, numerator) in (("EUR", "€"), ("USD", "$"), ("GBP", "£")):
+        pass
+    else:
+        return None
+    value = _finite_number(state.state)
+    result = value * scale if value is not None else None
+    return result if result is not None and math.isfinite(result) else None
 
 
 class EnergyMonitor:
@@ -214,6 +289,7 @@ class EnergyMonitor:
         self._power_epoch = 0
         self.alarm_active = False
         self._history = []
+        self._history_may_be_truncated = False
         self._history_start = None
         self._history_time_complete = False
         self._observed_switch = None
@@ -237,7 +313,8 @@ class EnergyMonitor:
         if (self._totals_cache_history is not self._history
                 or self._totals_cache_length != len(self._history)
                 or self._totals_cache_key != key):
-            self._totals_cache = history_energy_totals(self._history, now, zone)
+            self._totals_cache = history_energy_totals(
+                self._history, now, zone, self._history_may_be_truncated)
             self._totals_cache_history = self._history
             self._totals_cache_length = len(self._history)
             self._totals_cache_key = key
@@ -250,6 +327,26 @@ class EnergyMonitor:
     @property
     def energy_configured(self):
         return bool(self.config.get("energy_entity"))
+
+    @property
+    def cost_configured(self):
+        """Whether a price source and a valid currency were selected."""
+        return bool(_currency(self.config.get("energy_currency", "SEK")) and
+                    (self.config.get("energy_price_entity") or
+                     _finite_number(self.config.get("energy_price")) is not None))
+
+    def _cost_price(self, state=None):
+        """Return a per-kWh estimate and source, without guessing unavailable data."""
+        currency = _currency(self.config.get("energy_currency", "SEK"))
+        if not currency:
+            return None, None, None
+        entity = self.config.get("energy_price_entity")
+        if entity:
+            if state is None:
+                state = self.hass.states.get(entity)
+            price = _read_price(state, currency)
+            return price, currency, "sensor_at_end"
+        return _finite_number(self.config.get("energy_price")), currency, "fixed"
 
     @property
     def power_w(self):
@@ -317,6 +414,8 @@ class EnergyMonitor:
             "persistent_sent": self._persistent_sent,
             "mobile_sent": self._mobile_sent,
             "heating_history": self._history[-_HISTORY_LIMIT:],
+            "history_limit": _HISTORY_LIMIT,
+            "history_may_be_truncated": self._history_may_be_truncated,
             "history_start": self._history_start,
             "history_time_complete": self._history_time_complete,
         }
@@ -327,6 +426,11 @@ class EnergyMonitor:
         history = data.get("heating_history", [])
         if isinstance(history, list):
             self._history = [item for item in history if isinstance(item, dict)][-_HISTORY_LIMIT:]
+            # Older releases only retained 100 sessions. Mark the oldest
+            # retained period uncertain even after upgrading the limit.
+            self._history_may_be_truncated = bool(data.get("history_may_be_truncated") or
+                ("history_limit" not in data and len(history) >= _LEGACY_HISTORY_LIMIT) or
+                len(history) > _HISTORY_LIMIT)
         if data.get("switch_entity") != self.config.get("switch_entity"):
             # A changed switch cannot inherit an active run from the old
             # device. Preserve the observed start as an incomplete record.
@@ -398,6 +502,7 @@ class EnergyMonitor:
                 snapshot = {"switch": self.hass.states.get(self.config.get("switch_entity")),
                             "power": self.hass.states.get(self.config.get("power_entity")),
                             "energy": self.hass.states.get(self.config.get("energy_entity")),
+                            "price": self.hass.states.get(self.config.get("energy_price_entity")),
                             "observed_at": dt_util.utcnow().isoformat(),
                             "switch_event": switch_event}
                 if switch_event:
@@ -413,6 +518,7 @@ class EnergyMonitor:
         initial = {"switch": self.hass.states.get(self.config.get("switch_entity")),
                    "power": self.hass.states.get(self.config.get("power_entity")),
                    "energy": self.hass.states.get(self.config.get("energy_entity")),
+                   "price": self.hass.states.get(self.config.get("energy_price_entity")),
                    "observed_at": dt_util.utcnow().isoformat(), "initial": True}
         self._queue_update(initial)
 
@@ -459,17 +565,32 @@ class EnergyMonitor:
         except (ValueError, TypeError, OverflowError):
             return None
 
-    def _finish_history(self, end):
+    def _finish_history(self, end, price_state=None, *, has_price_snapshot=False):
         """Record only observations we can justify; unknown is not zero."""
         start_dt, end_dt = self._history_datetime(self._history_start), self._history_datetime(end)
         complete = bool(self._history_time_complete and start_dt and end_dt and end_dt >= start_dt)
-        self._history.append({
+        item = {
             "start": self._history_start,
             "end": end if end_dt else None,
             "duration_minutes": round((end_dt - start_dt).total_seconds() / 60, 1) if complete else None,
             "energy_kwh": self.session_energy_kwh if self.energy_configured else None,
             "complete": complete,
-        })
+        }
+        if self.cost_configured:
+            # Capture the spot price at the off observation; never re-price
+            # an older session using today's tariff. It is an estimate when a
+            # price sensor changes during the run, not a timed energy integral.
+            if self.config.get("energy_price_entity") and has_price_snapshot and price_state is None:
+                price, currency, basis = None, _currency(self.config.get("energy_currency", "SEK")), "sensor_at_end"
+            else:
+                price, currency, basis = self._cost_price(price_state)
+            energy = item["energy_kwh"]
+            cost = energy * price if complete and energy is not None and price is not None else None
+            item.update({"estimated_cost": round(cost, 4) if cost is not None and math.isfinite(cost) else None,
+                         "cost_currency": currency, "cost_basis": basis})
+        self._history.append(item)
+        if len(self._history) > _HISTORY_LIMIT:
+            self._history_may_be_truncated = True
         self._history = self._history[-_HISTORY_LIMIT:]
         self._history_start = None
         self._history_time_complete = False
@@ -565,7 +686,8 @@ class EnergyMonitor:
                     # switch state, does not reveal when the switch went off.
                     end_known = not self._restored_session and self._observed_switch != "unknown"
                     end = (self._changed_at(switch) or observed_at) if end_known else None
-                    self._finish_history(end)
+                    self._finish_history(end, snapshot.get("price") if snapshot is not None else None,
+                                         has_price_snapshot=snapshot is not None and "price" in snapshot)
                     self._session_active = False
                     changed = True
                 self._low_since = None

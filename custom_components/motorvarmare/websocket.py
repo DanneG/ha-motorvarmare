@@ -1,7 +1,7 @@
 """Permission-checked read-only schedule projection for the dashboard card."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, time
 import re
 
 import voluptuous as vol
@@ -9,8 +9,11 @@ from homeassistant.auth.permissions.const import POLICY_READ
 from homeassistant.components import websocket_api
 from homeassistant.exceptions import Unauthorized
 from homeassistant.helpers import config_validation as cv, entity_registry as er
+from homeassistant.util import dt as dt_util
 
 from .const import CONF_CALENDAR, DOMAIN
+from .controller import duration_for_temperature
+from .forecast import async_project_forecasts
 
 
 @websocket_api.websocket_command({
@@ -50,8 +53,20 @@ async def websocket_get_schedule(hass, connection, msg):
         return
     external = controller.config.get(CONF_CALENDAR)
     permitted = not external or connection.user.permissions.check_entity(external, POLICY_READ)
+    weather = controller.config.get("weather_entity")
+    weather_permitted = bool(weather and connection.user.permissions.check_entity(weather, POLICY_READ))
     try:
-        result = await controller.async_schedule_between(start, end, include_external=permitted)
+        if weather:
+            # Include potential edge-crossing windows before forecast temperatures
+            # are applied; forecast.py trims them after recalculation.
+            result = await controller.async_schedule_between(start, end, include_external=permitted,
+                                                             include_boundary_candidates=True)
+            local_end = datetime.combine(end, time.min, tzinfo=dt_util.get_default_time_zone())
+            result = await async_project_forecasts(hass, weather if weather_permitted else None, result,
+                                                    duration_for_temperature, blocked=controller._temperature_blocked,
+                                                    end=dt_util.as_utc(local_end))
+        else:
+            result = await controller.async_schedule_between(start, end, include_external=permitted)
     except (ValueError, OverflowError):
         connection.send_error(msg["id"], "invalid_format", "Invalid schedule date range")
         return

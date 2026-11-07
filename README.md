@@ -14,13 +14,17 @@ For a manual installation, copy `custom_components/motorvarmare` into the Home A
 
 ## Departures and calendar
 
-The card shows seven local calendar days at a time and can browse forward, with departures and estimated heater start and stop times. Start times are **estimates using the current outdoor temperature**, not a weather forecast, and can change as the temperature changes. Departures may come from the weekly schedule, Google Calendar, or the integration's own calendar.
+The card shows seven local calendar days at a time and can browse forward, with departures and estimated heater start and stop times. Start times are **estimates** and can change as the temperature changes. Departures may come from the weekly schedule, Google Calendar, or the integration's own calendar.
 
 Select a day in the card to add one or more departure times. Choose a one-time departure or a daily, weekly, monthly or yearly recurrence with an interval and optional end date. Weekly recurrence can select several weekdays. These departures are stored in the car's own Home Assistant calendar; they are not written to Google Calendar. A single occurrence or the whole series can be removed. The existing weekly schedule and single manual-departure entity remain available. The nearest future departure controls the heater. Recurrences use Home Assistant's local time: a nonexistent spring-forward time is skipped, and the first occurrence of a repeated autumn time is used.
 
 Local departures can be edited individually or as an entire series. Changing a series' start or recurrence rule clears its individual changes and exclusions; the card warns before applying this. Monthly recurrence follows the original day of the month and skips months without that date. The supported recurrence options are those listed above; rules such as “the second Monday” and editing “this and following” occurrences are not supported.
 
 To use Google Calendar, first set up the [Google Calendar integration](https://www.home-assistant.io/integrations/google/), choose a calendar in the car's settings, and enter exact event titles and/or words or tags, separated by commas or line breaks. An event matches if its entire title equals one of the titles, **or** if any word or tag appears in its title or description. Matching ignores letter case. The event's start is the departure time; all-day events are ignored. Calendar changes can take time to reach Home Assistant.
+
+Optionally choose a weather entity offering hourly forecasts. The calendar shows forecast-based estimates and labels their source; if a forecast is unavailable or outside its coverage, it uses the current measured temperature instead. Forecasts affect the calendar display only: actual switching is still based on the measured temperature. Weather access is checked for the current user.
+
+Use **Skip next** to skip the next departure without changing the calendar, or pause automatic heating for one car until resumed manually or at the selected time. Pausing stops a scheduled session controlled by the integration; a manually started session remains independently controlled. Optional operational alerts warn about switch, sensor and calendar problems, in Home Assistant and through the selected notification entity. The stale-reading threshold is configurable; unavailable reporting timestamps are not interpreted as stale.
 
 ## Heating time and start now
 
@@ -34,17 +38,21 @@ In each car's integration settings, optionally select the smart plug's power sen
 
 With a power sensor selected and low-power alerts enabled, the integration warns when the switch is on but power stays below the configured threshold. The defaults are 10 W and five minutes; both can be changed, and alerts can be switched off separately. A notification appears in Home Assistant. You can also select an optional notification entity, such as a phone running the Home Assistant app, to receive it there. Each channel notifies at most once per switch-on period. No reading or an unavailable sensor is not treated as zero power. Low power can have other causes, including a thermostat; check the cable and equipment.
 
+Optionally choose a fixed electricity price per kWh or a price sensor and currency. If a sensor is selected, its price at the session's end is used; no fixed-price fallback is silently substituted if that sensor is unavailable. The displayed cost is an **estimate**, not a time-weighted bill, and older sessions are not priced retroactively. Missing readings or mixed currencies are marked incomplete.
+
 ## Heating history
 
-The integration stores up to the 100 most recent switch-on periods separately for each vehicle. The companion card shows their start, end, duration and measured energy when available. A switch-on period does not prove the heater was consuming power. History is collected from version 0.7.0 onward; older sessions are not reconstructed. Sessions can be recorded without an energy sensor, and unavailable or incomplete readings are not shown as zero.
+The integration stores up to the 1,000 most recent switch-on periods separately for each vehicle. The companion card shows their start, end, duration and measured energy when available. A switch-on period does not prove the heater was consuming power. History is collected from version 0.7.0 onward; older sessions are not reconstructed. Sessions can be recorded without an energy sensor, and unavailable or incomplete readings are not shown as zero.
 
-Daily, weekly and monthly summaries use those recorded, completed sessions, grouped by their local end date. If a session crosses a period boundary, its energy cannot be split reliably; the affected periods are marked incomplete and the end-period sum can be too high. Missing measurements and incomplete history are also marked. Up to 32 daily, 16 weekly and 12 monthly periods are displayed.
+Daily, weekly and monthly summaries use those recorded, completed sessions, grouped by their local end date. If a session crosses a period boundary, its energy cannot be split reliably; the affected periods are marked incomplete and the end-period sum can be too high. Missing measurements and incomplete history are also marked. Up to 366 daily, 104 weekly and 36 monthly periods are displayed.
 
 ## Operation and safety
 
 Test both start and stop with the actual switch and heater before unattended use. Home Assistant must be able to communicate with the switch for the off command to reach the heater. Use an independent maximum-run timer and equipment rated for the load and environment. Follow the car and heater manufacturers' instructions.
 
 The integration has isolated tests but has not yet been fully verified on actual equipment. Scheduling is checked about once a minute and may be affected by outages or calendar sync delays.
+
+The status entity includes calendar-derived schedule details. Anyone allowed to read that entity can see those details; give it the same access protection as the calendar.
 
 ## License
 

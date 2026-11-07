@@ -830,11 +830,13 @@ class ControllerTests(unittest.TestCase):
         self.assertNotIn(("switch", "turn_on"), self.hass.calls)
 
     @sync_test
-    async def test_start_now_does_not_leave_ownership_when_start_fails_off(self):
+    async def test_unconfirmed_start_retains_shutdown_ownership(self):
         self.hass.fail.add(("switch", "turn_on"))
         with self.assertRaisesRegex(ValueError, "turn_on_failed"):
             await self.item.async_start_now()
-        self.assertFalse(self.item.owned)
+        self.assertTrue(self.item.owned)
+        self.assertTrue(self.item._stop_requested)
+        self.assertIn(("switch", "turn_off"), self.hass.calls)
         self.assertEqual(self.hass.states["switch.heater"].state, "off")
 
     @sync_test

@@ -20,10 +20,37 @@ async def async_setup_entry(
 ) -> None:
     """Add a schedule toggle for each day, starting with Monday."""
     controller = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities(
-        WeeklyDepartureSwitch(entry, controller, day, name)
-        for day, name in enumerate(WEEKDAYS)
-    )
+    async_add_entities([
+        *(WeeklyDepartureSwitch(entry, controller, day, name) for day, name in enumerate(WEEKDAYS)),
+        AutomationPausedSwitch(entry, controller),
+    ])
+
+
+class AutomationPausedSwitch(SwitchEntity):
+    """Pause automatic schedules without disabling manual heating."""
+    _attr_has_entity_name = True
+    _attr_translation_key = "automation_paused"
+    _attr_icon = "mdi:calendar-pause"
+
+    def __init__(self, entry, controller):
+        self.controller = controller
+        self._signal = f"{DOMAIN}_{entry.entry_id}"
+        self._attr_unique_id = f"{entry.entry_id}_automation_paused"
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, entry.entry_id)}, name=entry.title)
+
+    @property
+    def is_on(self):
+        return self.controller.automation_paused
+
+    async def async_turn_on(self, **kwargs):
+        await self.controller.async_set_paused(True)
+
+    async def async_turn_off(self, **kwargs):
+        await self.controller.async_set_paused(False)
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        self.async_on_remove(async_dispatcher_connect(self.hass, self._signal, self.async_write_ha_state))
 
 
 class WeeklyDepartureSwitch(SwitchEntity):

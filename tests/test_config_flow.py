@@ -111,6 +111,31 @@ class ConfigFlowTests(unittest.TestCase):
             fields = {key.key: key.kwargs for key in self.flow._schema(values).schema}
             self.assertIs(fields["post_departure_enabled"]["default"], expected)
 
+    def test_forecast_price_and_alert_settings_are_optional_and_clearable(self):
+        fields = {key.key: key.kwargs for key in self.flow._schema({
+            "weather_entity": "weather.home", "energy_price_entity": "sensor.price",
+            "energy_price": 0, "energy_currency": "EUR",
+        }).schema}
+        self.assertEqual(fields["weather_entity"]["description"]["suggested_value"], "weather.home")
+        self.assertEqual(fields["energy_price_entity"]["description"]["suggested_value"], "sensor.price")
+        self.assertEqual(fields["energy_price"]["description"]["suggested_value"], 0)
+        self.assertEqual(fields["energy_currency"]["default"], "EUR")
+        self.assertFalse(fields["operation_alerts_enabled"]["default"])
+        user_input = {"weather_entity": "", "energy_price": 0}
+        self.flow._normalize_optional_entities(user_input)
+        self.assertEqual(user_input["weather_entity"], "")
+        self.assertEqual(user_input["energy_price"], 0)
+        user_input = {}
+        self.flow._normalize_optional_entities(user_input)
+        self.assertIsNone(user_input["energy_price"])
+
+    def test_currency_must_be_three_letters_and_is_normalized(self):
+        data = {"name": "Bil", "switch_entity": "switch.car", "event_keywords": "", "event_titles": "", "energy_currency": " sek "}
+        self.assertIsNone(self.flow._error(self.hass, data))
+        self.assertEqual(data["energy_currency"], "SEK")
+        data["energy_currency"] = "kr"
+        self.assertEqual(self.flow._error(self.hass, data), "invalid_currency")
+
     def test_legacy_tag_remains_only_while_its_keyword_remains(self):
         error, result = self.validate(keywords="Annat, JOBB\n#bil1", old="jobb")
         self.assertIsNone(error)

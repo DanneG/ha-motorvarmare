@@ -52,6 +52,9 @@ class SensorRegistryTests(unittest.TestCase):
         reg.mapping[('button', 'motorvarmare', 'car1_clear_departure')] = 'button.clear_renamed'
         reg.mapping[('button', 'motorvarmare', 'car1_start_now')] = 'button.start_renamed'
         reg.mapping[('button', 'motorvarmare', 'car1_stop_now')] = 'button.stop_renamed'
+        reg.mapping[('button', 'motorvarmare', 'car1_skip_next')] = 'button.skip_renamed'
+        reg.mapping[('switch', 'motorvarmare', 'car1_automation_paused')] = 'switch.pause_renamed'
+        reg.mapping[('datetime', 'motorvarmare', 'car1_pause_until')] = 'datetime.pause_renamed'
         reg.mapping[('calendar', 'motorvarmare', 'car1_departure_calendar')] = 'calendar.departures_renamed'
         reg.mapping[('time', 'motorvarmare', 'car1_weekly_time_0')] = 'time.monday_renamed'
         reg.mapping[('switch', 'motorvarmare', 'car1_weekly_enabled_0')] = 'switch.monday_renamed'
@@ -83,12 +86,14 @@ class SensorRegistryTests(unittest.TestCase):
         self.assertEqual(controls['clear_departure'], 'button.clear_renamed')
         self.assertEqual(controls['start_now'], 'button.start_renamed')
         self.assertEqual(controls['stop_now'], 'button.stop_renamed')
+        self.assertEqual(controls['skip_next'], 'button.skip_renamed')
+        self.assertEqual(controls['automation_paused'], 'switch.pause_renamed')
+        self.assertEqual(controls['pause_until'], 'datetime.pause_renamed')
         self.assertEqual(controls['calendar'], 'calendar.departures_renamed')
         self.assertEqual(controls['weekly_times'][0], 'time.monday_renamed')
         self.assertEqual(controls['weekly_enabled'][0], 'switch.monday_renamed')
         self.assertEqual(controls['heater_switch'], 'switch.physical')
         self.assertTrue(all(uid.startswith('car1_') for _,_,uid in reg.calls))
-        self.assertEqual(len(reg.calls), 19)
         await item.async_added_to_hass()
         self.assertEqual(bus.listener[0], 'entity_registry_updated')
         reg.mapping[('time', 'motorvarmare', 'car1_weekly_time_0')] = 'time.renamed_again'

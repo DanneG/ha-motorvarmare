@@ -90,6 +90,15 @@ class HeaterController:
         self.owned = False
         self._stop_requested = False
         self._temperature_blocked = False
+        self.automation_paused = False
+        self.pause_until = None
+        self._skipped_departures = set()
+        self._operational_active = set()
+        self._operational_pending = set()
+        self._operational_sent = set()
+        self._start_unconfirmed = False
+        self._stop_unconfirmed = False
+        self._uncertain_start_until = None
         self._active_departure = self._started_at = None
         self._active_source = None
         self._resume_departure = self._resume_source = self._resume_started_at = None
@@ -169,6 +178,10 @@ class HeaterController:
         self.owned = bool(data.get("owned"))
         self._stop_requested = bool(data.get("stop_requested"))
         self._temperature_blocked = bool(data.get("temperature_blocked"))
+        self._uncertain_start_until = self._parse(data.get("uncertain_start_until"))
+        self.automation_paused = bool(data.get("automation_paused"))
+        self.pause_until = self._parse(data.get("pause_until"))
+        self._skipped_departures = {item for item in data.get("skipped_departures", []) if isinstance(item, str)}
         self._active_departure = self._parse(data.get("active_departure"))
         self._started_at = self._parse(data.get("started_at"))
         self._active_source = data.get("active_source")
@@ -213,6 +226,10 @@ class HeaterController:
             "owned": self.owned,
             "stop_requested": self._stop_requested,
             "temperature_blocked": self._temperature_blocked,
+            "uncertain_start_until": iso(self._uncertain_start_until),
+            "automation_paused": self.automation_paused,
+            "pause_until": iso(self.pause_until),
+            "skipped_departures": sorted(self._skipped_departures),
             "active_departure": iso(self._active_departure),
             "started_at": iso(self._started_at),
             "active_source": self._active_source,
@@ -227,6 +244,50 @@ class HeaterController:
     async def async_set_manual_departure(self, value):
         async with self._lock:
             self.manual_departure = self._parse(value)
+            await self._save()
+        await self.async_update()
+
+    @property
+    def skipped_departure(self):
+        """Return the next intentionally skipped departure for display."""
+        moments = [self._parse(item) for item in self._skipped_departures]
+        return min((item for item in moments if item is not None), default=None)
+
+    async def async_skip_next(self):
+        """Skip the next scheduled departure without changing any calendar."""
+        async with self._lock:
+            now = dt_util.utcnow()
+            candidates = self._candidates(now)
+            if not candidates:
+                raise ValueError("no_departure_to_skip")
+            moment = candidates[0][0]
+            self._skipped_departures.add(moment.isoformat())
+            if self.owned and self._active_source != "Starta nu" and self._active_departure == moment:
+                self._stop_requested = True
+                self._resume_departure = self._resume_source = self._resume_started_at = None
+            await self._save()
+        await self.async_update()
+
+    async def async_set_pause_until(self, value):
+        """Set an optional automatic resume time; it does not start a pause."""
+        moment = self._parse(value)
+        if moment and moment <= dt_util.utcnow():
+            raise ValueError("pause_until_past")
+        async with self._lock:
+            self.pause_until = moment
+            await self._save()
+        await self.async_update()
+
+    async def async_set_paused(self, value):
+        """Pause scheduled starts while retaining manual Start now."""
+        async with self._lock:
+            self.automation_paused = bool(value)
+            if not value or (self.pause_until and self.pause_until <= dt_util.utcnow()):
+                self.pause_until = None
+            if value:
+                self._resume_departure = self._resume_source = self._resume_started_at = None
+                if self.owned and self._active_source != "Starta nu":
+                    self._stop_requested = True
             await self._save()
         await self.async_update()
 
@@ -431,15 +492,14 @@ class HeaterController:
             self._active_source = "Starta nu"
             await self._save()
             try:
-                await asyncio.wait_for(
-                    self.hass.services.async_call("switch", "turn_on", {ATTR_ENTITY_ID: self.config[CONF_SWITCH]}, blocking=True),
-                    timeout=10,
-                )
+                if not await self._turn_on_confirmed():
+                    raise RuntimeError("Switch did not confirm on")
             except Exception as exc:
-                await self._turn_off()
+                await self._abort_unconfirmed_start()
                 self.status = "Fel"
                 self.error = "Kunde inte slå på brytaren"
                 self._notify()
+                self._schedule_operational_alerts()
                 raise ValueError("turn_on_failed") from exc
             self.temperature = temperature
             self.status = "Värmer"
@@ -505,6 +565,7 @@ class HeaterController:
                 self.status = "Fel"
                 self.error = "Kunde inte stänga av brytaren; försöker igen"
                 self._notify()
+                self._schedule_operational_alerts()
                 raise ValueError("turn_off_failed")
             self.status = "Avstängd"
             self.error = None
@@ -525,7 +586,8 @@ class HeaterController:
     async def async_shutdown(self):
         async with self._lock:
             now = dt_util.utcnow()
-            if (self.owned and self.post_departure_minutes and self._active_source != "Starta nu"
+            if (self.owned and not self._stop_requested and not self.automation_paused and not self._temperature_blocked
+                    and self.post_departure_minutes and self._active_source != "Starta nu"
                     and self._active_departure and self._started_at
                     and self._active_departure <= now < self._heating_end(self._active_departure, self._active_source)
                     and now < self._started_at + _MAX_RUNTIME):
@@ -535,6 +597,7 @@ class HeaterController:
             if self.owned and not await self._turn_off():
                 self.error = "Kunde inte stänga av brytaren"
                 self._notify()
+                self._schedule_operational_alerts()
                 return False
             if self._unsub:
                 self._unsub()
@@ -548,8 +611,9 @@ class HeaterController:
     async def _turn_off(self):
         entity_id = self.config[CONF_SWITCH]
         state = self.hass.states.get(entity_id)
+        uncertain = self._uncertain_start_until is not None
         try:
-            if not state or state.state != STATE_OFF:
+            if uncertain or not state or state.state != STATE_OFF:
                 await asyncio.wait_for(
                     self.hass.services.async_call("switch", "turn_off", {ATTR_ENTITY_ID: entity_id}, blocking=True),
                     timeout=10,
@@ -562,16 +626,52 @@ class HeaterController:
                         break
                     await asyncio.sleep(0.3)
             if not state or state.state != STATE_OFF:
+                self._stop_unconfirmed = True
                 return False
         except Exception:
+            self._stop_unconfirmed = True
             _LOGGER.exception("Unable to turn off heater for %s", self.entry.title)
             return False
+        # A reported OFF may predate a delayed ON command. Keep ownership and
+        # actively repeat OFF while that outcome remains uncertain.
+        if uncertain and dt_util.utcnow() < self._uncertain_start_until:
+            self._stop_unconfirmed = True
+            return False
+        self._uncertain_start_until = None
+        self._stop_unconfirmed = False
         self.owned = False
         self._stop_requested = False
         self._active_departure = self._started_at = None
         self._active_source = None
         await self._save()
         return True
+
+    async def _abort_unconfirmed_start(self):
+        """Persist a pending stop and actively cancel a possibly delayed ON."""
+        self._stop_requested = True
+        self._uncertain_start_until = dt_util.utcnow() + timedelta(minutes=2)
+        try:
+            await self._save()
+        except Exception:
+            _LOGGER.exception("Unable to persist unconfirmed start for %s", self.entry.title)
+        return await self._turn_off()
+
+    async def _turn_on_confirmed(self):
+        """Request switch-on and verify the physical entity reports on."""
+        entity_id = self.config[CONF_SWITCH]
+        try:
+            await asyncio.wait_for(self.hass.services.async_call(
+                "switch", "turn_on", {ATTR_ENTITY_ID: entity_id}, blocking=True), timeout=10)
+            for _ in range(10):
+                state = self.hass.states.get(entity_id)
+                if state and state.state == STATE_ON:
+                    self._start_unconfirmed = False
+                    return True
+                await asyncio.sleep(0.3)
+        except Exception:
+            _LOGGER.warning("Unable to confirm heater switch on for %s", self.entry.title, exc_info=True)
+        self._start_unconfirmed = True
+        return False
 
     async def _read_calendar(self, now):
         entity_id = self.config.get(CONF_CALENDAR)
@@ -626,7 +726,7 @@ class HeaterController:
             self._calendar_error = "Kalendern kan inte läsas; se Home Assistants logg"
             _LOGGER.warning("Could not read calendar %s", entity_id, exc_info=True)
 
-    def _candidates(self, now, include_recent=False):
+    def _candidates(self, now, include_recent=False, include_skipped=False):
         # An unverified cached event must not block a valid manual departure.
         cutoff = now - timedelta(minutes=self.post_departure_minutes) if include_recent else now
         result = [(moment, src) for moment, src in self._calendar_events if moment > cutoff] if self._calendar_ok else []
@@ -657,7 +757,7 @@ class HeaterController:
                 and now < self._resume_started_at + _MAX_RUNTIME
                 and (self._resume_departure, self._resume_source) in self._candidates(now, include_recent=True)):
             result.append((self._resume_departure, self._resume_source))
-        return sorted(result, key=lambda item: item[0])
+        return sorted((item for item in result if include_skipped or item[0].isoformat() not in self._skipped_departures), key=lambda item: item[0])
 
     def _handoff_overlapping_departure(self, now):
         """Extend an owned scheduled run only into a connected heating window."""
@@ -693,7 +793,7 @@ class HeaterController:
         for item in self.local_events_between(now - timedelta(minutes=self.post_departure_minutes), end + _MAX_RUNTIME):
             locals_by_time.setdefault(item["departure"], []).append(item)
         schedule = []
-        candidates = self._candidates(now)
+        candidates = self._candidates(now, include_skipped=True)
         if (self.owned and self._active_source != "Starta nu" and self._active_departure
                 and self._active_departure <= now < self.active_until):
             candidates.append((self._active_departure, self._active_source))
@@ -718,11 +818,11 @@ class HeaterController:
                 "exceptions_count": local.get("exceptions_count", 0) if local else 0,
                 "summary": local.get("summary", "Avresa") if local else "Avresa",
                 "removable": local is not None,
-                "suppressed": f"{source}|{departure.isoformat()}" in self._suppressed,
+                "suppressed": departure.isoformat() in self._skipped_departures or f"{source}|{departure.isoformat()}" in self._suppressed,
             })
         return schedule
 
-    async def async_schedule_between(self, first_day, last_day, include_external=True):
+    async def async_schedule_between(self, first_day, last_day, include_external=True, include_boundary_candidates=False):
         """Project a short local-date window without changing heater control.
 
         The end date is exclusive. External-calendar errors do not change the
@@ -787,7 +887,7 @@ class HeaterController:
             heating_end = self._heating_end(departure, source)
             if departure < start and (planned is None or heating_end <= start):
                 continue
-            if departure >= end and (planned is None or planned >= end):
+            if not include_boundary_candidates and departure >= end and (planned is None or planned >= end):
                 continue
             owned_local = source == "Planerad" and local is not None
             result.append({"departure": departure.isoformat(), "start": planned.isoformat() if planned else None,
@@ -801,7 +901,7 @@ class HeaterController:
                            "exceptions_count": local.get("exceptions_count", 0) if owned_local else 0,
                            "summary": local.get("summary", "Avresa") if local else "Avresa",
                            "removable": owned_local,
-                           "suppressed": f"{source}|{departure.isoformat()}" in self._suppressed})
+                           "suppressed": departure.isoformat() in self._skipped_departures or f"{source}|{departure.isoformat()}" in self._suppressed})
         return {"events": result, "calendar_error": calendar_error}
 
     def _temperature(self):
@@ -836,10 +936,90 @@ class HeaterController:
             await self.energy.async_update()
         except Exception:
             _LOGGER.exception("Error monitoring energy for %s", self.entry.title)
+        await self._update_operational_alerts()
+
+    def _operational_problems(self):
+        """Gather active problems without assuming a constant value is stale."""
+        problems = set()
+        switch = self.hass.states.get(self.config.get(CONF_SWITCH))
+        if not switch or switch.state not in (STATE_ON, STATE_OFF):
+            problems.add("switch_unavailable")
+        error = self.error or ""
+        if self._start_unconfirmed or "Kunde inte slå på" in error:
+            problems.add("start_failed")
+        if self._stop_unconfirmed or "Kunde inte stänga av" in error or "Kunde inte bekräfta att brytaren är av" in error:
+            problems.add("stop_failed")
+        if self._temperature() is None:
+            problems.add("temperature_unavailable")
+        else:
+            state = self.hass.states.get(self.config.get(CONF_TEMPERATURE))
+            reported = getattr(state, "last_reported", None)
+            try:
+                age_limit = float(self.config.get("temperature_max_age_hours", 12))
+                if age_limit > 0 and isinstance(reported, datetime) and dt_util.utcnow() - dt_util.as_utc(reported) > timedelta(hours=age_limit):
+                    problems.add("temperature_stale")
+            except (TypeError, ValueError, OverflowError):
+                pass
+        if self.config.get(CONF_CALENDAR) and not self._calendar_ok:
+            problems.add("calendar_unavailable")
+        return problems
+
+    def _schedule_operational_alerts(self):
+        if self.config.get("operation_alerts_enabled", False):
+            self.hass.async_create_task(self._update_operational_alerts())
+
+    async def _update_operational_alerts(self):
+        """Send at most one notification per active problem and channel."""
+        if not self.config.get("operation_alerts_enabled", False):
+            self._operational_active.clear()
+            self._operational_sent.clear()
+            return
+        problems = self._operational_problems()
+        self._operational_active = problems
+        self._operational_sent = {item for item in self._operational_sent if item[0] in problems}
+        language = str(getattr(getattr(self.hass, "config", None), "language", "en") or "en").lower()
+        sv = language.startswith("sv")
+        messages = {
+            "switch_unavailable": ("Brytaren är inte tillgänglig. Kontrollera anslutningen.", "The switch is unavailable. Check its connection."),
+            "start_failed": ("Värmaren kunde inte bekräftas påslagen. Kontrollera brytaren.", "The heater switch did not confirm turning on. Check the switch."),
+            "stop_failed": ("Värmaren kunde inte bekräftas avstängd. Kontrollera brytaren.", "The heater switch did not confirm turning off. Check the switch."),
+            "temperature_unavailable": ("Utetemperaturen är inte tillgänglig. Kontrollera sensorn.", "Outdoor temperature is unavailable. Check the sensor."),
+            "temperature_stale": ("Temperatursensorn verkar inte ha rapporterat på länge. Kontrollera sensorn.", "The temperature sensor has not reported recently. Check the sensor."),
+            "calendar_unavailable": ("Kalendern kan inte läsas. Kontrollera kalenderanslutningen.", "The calendar cannot be read. Check its connection."),
+        }
+        title = ("Motorvärmare: " if sv else "Engine heater: ") + self.entry.title
+        notify_entity = self.config.get("notify_entity")
+        for problem in sorted(problems):
+            message = messages[problem][0 if sv else 1]
+            targets = [("persistent", "persistent_notification", "create", {"title": title, "message": message,
+                       "notification_id": f"{DOMAIN}_{self.entry.entry_id}_{problem}"})]
+            if isinstance(notify_entity, str) and notify_entity.startswith("notify."):
+                targets.append(("mobile", "notify", "send_message", {"entity_id": notify_entity, "title": title, "message": message}))
+            for channel, domain, service, data in targets:
+                token = (problem, channel)
+                if token in self._operational_sent or token in self._operational_pending or problem not in self._operational_active:
+                    continue
+                self._operational_pending.add(token)
+                try:
+                    await asyncio.wait_for(self.hass.services.async_call(domain, service, data, blocking=True), timeout=10)
+                    if problem in self._operational_active:
+                        self._operational_sent.add(token)
+                except Exception:
+                    _LOGGER.warning("Unable to send %s operational alert for %s", channel, self.entry.title, exc_info=True)
+                finally:
+                    self._operational_pending.discard(token)
 
     async def _update_locked(self):
         now = dt_util.utcnow()
         self.error = None
+        if self.automation_paused and self.pause_until and now >= self.pause_until:
+            self.automation_paused = False
+            self.pause_until = None
+            await self._save()
+        retained_skips = {item for item in self._skipped_departures if (self._parse(item) or now) + timedelta(minutes=self.post_departure_minutes) > now}
+        if retained_skips != self._skipped_departures:
+            self._skipped_departures = retained_skips
+            await self._save()
         retain_after = timedelta(minutes=self.post_departure_minutes)
         if self.manual_departure and self.manual_departure + retain_after <= now:
             self.manual_departure = None
@@ -933,6 +1113,8 @@ class HeaterController:
             self.status, self.error = "Fel", "Brytaren är inte tillgänglig"
         elif self.temperature is None:
             self.status, self.error = "Fel", "Utetemperaturen är inte tillgänglig eller saknar temperaturenhet"
+        elif self.automation_paused:
+            self.status = "Pausad"
         elif not self.next_departure:
             self.status = "Ingen avresa"
         elif not self.duration_minutes:
@@ -956,13 +1138,11 @@ class HeaterController:
             self._resume_departure = self._resume_source = self._resume_started_at = None
             await self._save()
             try:
-                await asyncio.wait_for(
-                    self.hass.services.async_call("switch", "turn_on", {ATTR_ENTITY_ID: self.config[CONF_SWITCH]}, blocking=True),
-                    timeout=10,
-                )
+                if not await self._turn_on_confirmed():
+                    raise RuntimeError("Switch did not confirm on")
                 self.status = "Värmer"
             except Exception:
                 self.status, self.error = "Fel", "Kunde inte slå på brytaren; försöker stänga av"
-                await self._turn_off()
+                await self._abort_unconfirmed_start()
         if not self._calendar_ok:
             self.error = (self.error + "; " if self.error else "") + (self._calendar_error or "Kalendern kan inte läsas")
