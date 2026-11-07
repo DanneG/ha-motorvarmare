@@ -281,6 +281,8 @@ class EnergyMonitor:
         self._baseline = None
         self._last_meter = None
         self._session_energy = None
+        self._last_power = None
+        self._last_power_at = None
         self._invalid = False
         self._low_since = None
         self._persistent_sent = False
@@ -326,7 +328,13 @@ class EnergyMonitor:
 
     @property
     def energy_configured(self):
-        return bool(self.config.get("energy_entity"))
+        # Older installations may still have a cumulative meter configured.
+        # A selected power sensor always takes precedence for new sessions.
+        return self.power_configured or bool(self.config.get("energy_entity"))
+
+    @property
+    def _integrate_power(self):
+        return self.power_configured
 
     @property
     def cost_configured(self):
@@ -354,11 +362,11 @@ class EnergyMonitor:
 
     @property
     def energy_meter_kwh(self):
-        return _read_number(self.hass.states.get(self.config.get("energy_entity")), _ENERGY_UNITS, cumulative=True) if self.energy_configured else None
+        return _read_number(self.hass.states.get(self.config.get("energy_entity")), _ENERGY_UNITS, cumulative=True) if self.config.get("energy_entity") else None
 
     @property
     def energy_sensor_available(self):
-        return self.energy_meter_kwh is not None
+        return self.power_w is not None if self._integrate_power else self.energy_meter_kwh is not None
 
     @property
     def session_energy_kwh(self):
@@ -405,6 +413,7 @@ class EnergyMonitor:
             "power_entity": self.config.get("power_entity"),
             "notify_entity": self.config.get("notify_entity"),
             "energy_entity": self.config.get("energy_entity"),
+            "energy_source": "power" if self._integrate_power else "meter",
             "session_active": self._session_active,
             "switch_changed": self._switch_changed,
             "baseline": self._baseline,
@@ -450,7 +459,10 @@ class EnergyMonitor:
             self._persistent_sent = bool(data.get("persistent_sent"))
             if data.get("notify_entity") == self.config.get("notify_entity"):
                 self._mobile_sent = bool(data.get("mobile_sent"))
-        if data.get("energy_entity") == self.config.get("energy_entity"):
+        if ((self._integrate_power and data.get("energy_source") == "power"
+             and data.get("power_entity") == self.config.get("power_entity")) or
+            (not self._integrate_power and data.get("energy_source", "meter") == "meter"
+             and data.get("energy_entity") == self.config.get("energy_entity"))):
             for name, key in (("_baseline", "baseline"), ("_last_meter", "last_meter"), ("_session_energy", "session_energy")):
                 value = data.get(key)
                 if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0:
@@ -462,6 +474,10 @@ class EnergyMonitor:
                 # complete session when continuity cannot be verified.
                 self._invalid = True
                 self._session_energy = None
+        elif self._session_active and self.energy_configured:
+            # A measurement made with a different source cannot be extended.
+            self._invalid = True
+            self._session_energy = None
         # Do not count unobserved downtime toward the low-power delay.
         self._low_since = None
 
@@ -470,7 +486,9 @@ class EnergyMonitor:
 
         self._stopped = False
         self._stopping = False
-        entities = {self.config.get("switch_entity"), self.config.get("power_entity"), self.config.get("energy_entity")}
+        entities = {self.config.get("switch_entity"), self.config.get("power_entity")}
+        if not self._integrate_power:
+            entities.add(self.config.get("energy_entity"))
         current_switch = self.hass.states.get(self.config.get("switch_entity"))
         if current_switch and current_switch.state == "off":
             self._saw_off = True
@@ -565,6 +583,28 @@ class EnergyMonitor:
         except (ValueError, TypeError, OverflowError):
             return None
 
+    def _integrate_power_until(self, observed_at, power):
+        """Integrate the preceding power sample up to this observation.
+
+        Values are held constant between reports. Missing readings, a changed
+        clock or an overflow invalidate the whole session, never imply zero.
+        """
+        instant = self._history_datetime(observed_at)
+        if (instant is None or power is None or self._last_power is None
+                or self._last_power_at is None or instant < self._last_power_at):
+            self._invalid = True
+            self._session_energy = None
+            return
+        elapsed = (instant - self._last_power_at).total_seconds()
+        value = self._session_energy + self._last_power * elapsed / 3_600_000
+        if not math.isfinite(value):
+            self._invalid = True
+            self._session_energy = None
+            return
+        self._session_energy = value
+        self._last_power = power
+        self._last_power_at = instant
+
     def _finish_history(self, end, price_state=None, *, has_price_snapshot=False):
         """Record only observations we can justify; unknown is not zero."""
         start_dt, end_dt = self._history_datetime(self._history_start), self._history_datetime(end)
@@ -609,6 +649,8 @@ class EnergyMonitor:
             meter = (_read_number(snapshot.get("energy"), _ENERGY_UNITS, cumulative=True)
                      if snapshot is not None and self.energy_configured
                      else self.energy_meter_kwh)
+            power_state = snapshot.get("power") if snapshot is not None else self.hass.states.get(self.config.get("power_entity"))
+            power = _read_number(power_state, _POWER_UNITS) if self.power_configured else None
             changed = False
             if on:
                 changed_at = self._changed_at(switch)
@@ -623,10 +665,15 @@ class EnergyMonitor:
                     # If HA first sees an already-on plug there is no known
                     # start reading; a partial measurement must not be
                     # presented as consumption for the whole session.
-                    self._baseline = meter if saw_off_before else None
+                    self._baseline = ((0.0 if power is not None else None) if self._integrate_power else meter) if saw_off_before else None
                     self._last_meter = self._baseline
                     self._session_energy = 0.0 if self._baseline is not None else None
                     self._invalid = self.energy_configured and self._baseline is None
+                    self._last_power = power if self._integrate_power else None
+                    self._last_power_at = self._history_datetime(observed_at) if self._integrate_power else None
+                    if self._integrate_power and self._last_power_at is None:
+                        self._invalid = True
+                        self._session_energy = None
                     self._saw_off = False
                     self._low_since = None
                     self._persistent_sent = self._mobile_sent = False
@@ -642,13 +689,16 @@ class EnergyMonitor:
                         # keep one uncertain record rather than inventing two.
                         self._history_time_complete = False
                     changed = True
-                if self.energy_configured and meter is None and not self._invalid:
+                if self._integrate_power and not new_session and not self._invalid:
+                    self._integrate_power_until(observed_at, power)
+                    changed = True
+                if not self._integrate_power and self.energy_configured and meter is None and not self._invalid:
                     # A reset can occur while a sensor is unavailable, so
                     # continuity cannot be established from later readings.
                     self._invalid = True
                     self._session_energy = None
                     changed = True
-                if meter is not None and self._baseline is not None and not self._invalid:
+                if not self._integrate_power and meter is not None and self._baseline is not None and not self._invalid:
                     if self._last_meter is not None and meter + 1e-9 < self._last_meter:
                         self._invalid = True
                         self._session_energy = None
@@ -656,9 +706,6 @@ class EnergyMonitor:
                     else:
                         self._last_meter = meter
                         self._session_energy = max(0.0, meter - self._baseline)
-                power = (_read_number(snapshot.get("power"), _POWER_UNITS)
-                         if snapshot is not None and self.power_configured
-                         else self.power_w)
                 if not self._stopped and self.config.get("power_alarm_enabled", True) and self.power_configured and power is not None and power < self._threshold():
                     now = dt_util.utcnow()
                     if self._low_since is None:
@@ -672,10 +719,12 @@ class EnergyMonitor:
             elif off:
                 self._saw_off = True
                 if self._session_active:
-                    if self.energy_configured and meter is None:
+                    if self._integrate_power and not self._invalid:
+                        self._integrate_power_until(observed_at, power)
+                    if not self._integrate_power and self.energy_configured and meter is None:
                         self._invalid = True
                         self._session_energy = None
-                    if meter is not None and self._baseline is not None and not self._invalid:
+                    if not self._integrate_power and meter is not None and self._baseline is not None and not self._invalid:
                         if self._last_meter is not None and meter + 1e-9 < self._last_meter:
                             self._invalid = True
                             self._session_energy = None

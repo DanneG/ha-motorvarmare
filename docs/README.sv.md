@@ -34,7 +34,7 @@ Gångtiden utgår från [M Sveriges rekommendationer för motorns bästa enligt 
 
 ## Valfri effekt- och energiövervakning
 
-I inställningarna för varje bil kan du välja smartpluggens effektsensor i W eller kW och dess ackumulerade energisensor i Wh eller kWh. Energisensorn behöver ha tillståndsklassen `total` eller `total_increasing`. Spara inställningarna mellan körningarna: när de sparas laddas integrationen om och en körning som den styr avbryts. Kortet kan visa aktuell effekt och förbrukningen under den pågående eller senaste körningen. Förbrukningen bygger på senast rapporterade mätvärden; om pluggen rapporterar slutvärdet för sent kan värdet bli för lågt. Om körningens förbrukning inte kan beräknas tillförlitligt visas den som otillgänglig i stället för att gissas.
+I inställningarna för varje bil kan du välja smartpluggens effektsensor i W eller kW. Integrationen uppskattar energiförbrukningen utifrån effekten över tid; du behöver ingen separat energisensor. Kortet visar aktuell effekt och uppskattad energi för den pågående eller senaste körningen. Det senast rapporterade effektvärdet antas gälla tills nästa värde kommer, så hur exakt beräkningen blir beror på hur ofta sensorn rapporterar förändringar. Om en körnings förbrukning inte kan beräknas tillförlitligt visas den som otillgänglig. Spara inställningarna mellan körningarna: när de sparas laddas integrationen om och en körning som den styr avbryts.
 
 Om du har valt en effektsensor och aktiverat lågeffektslarmet kan integrationen varna när brytaren är på men effekten ligger under gränsen. Förvalet är 10 W under fem minuter, och båda värdena går att ändra. Larmet kan stängas av separat. En notis visas i Home Assistant. Du kan även välja en notisentitet, till exempel en telefon med Home Assistant-appen, för att få notisen dit. Varje kanal meddelar högst en gång per påslag. Ett saknat eller otillgängligt mätvärde räknas inte som noll watt. Låg effekt kan även ha andra orsaker, till exempel en termostat; kontrollera kabeln och utrustningen.
 
@@ -42,7 +42,7 @@ Välj vid behov ett fast elpris per kWh eller en prissensor och valuta. Om en se
 
 ## Historik över värmningar
 
-Integrationen sparar de 1 000 senaste perioderna då brytaren varit på separat för varje bil. I kortet kan du se start, stopp, gångtid och uppmätt energi när den finns tillgänglig. Att brytaren varit på betyder inte säkert att värmaren dragit effekt. Historiken börjar samlas in från version 0.7.0; äldre körningar återskapas inte. Körningar sparas även utan energisensor, och saknade eller ofullständiga värden visas inte som noll.
+Integrationen sparar de 1 000 senaste perioderna då brytaren varit på separat för varje bil. I kortet kan du se start, stopp, gångtid och uppskattad energi när den finns tillgänglig. Att brytaren varit på betyder inte säkert att värmaren dragit effekt. Historiken börjar samlas in från version 0.7.0; äldre körningar återskapas inte. Körningar sparas även utan effektsensor, och saknade eller ofullständiga energiberäkningar visas inte som noll.
 
 Summor per dag, vecka och månad utgår från de registrerade, avslutade körningarna och grupperas efter lokalt slutdatum. Om en körning passerar en periodgräns går energin inte att dela upp tillförlitligt; berörda perioder markeras som ofullständiga och summan för slutperioden kan bli för hög. Även saknade mätvärden och ofullständig historik markeras. Upp till 366 dags-, 104 vecko- och 36 månadssummor visas.
 

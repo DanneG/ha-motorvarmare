@@ -175,8 +175,8 @@ class ConfigFlowTests(unittest.TestCase):
             "notify_entity": "notify.my_phone",
         }).schema
         fields = {key.key: key.kwargs for key in schema}
+        self.assertNotIn("energy_entity", fields)
         for key, value in (("power_entity", "sensor.plug_power"),
-                           ("energy_entity", "sensor.plug_energy"),
                            ("notify_entity", "notify.my_phone")):
             self.assertEqual(fields[key]["description"]["suggested_value"], value)
         self.assertEqual(fields["power_min_watts"]["default"], 10)

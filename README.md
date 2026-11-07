@@ -34,7 +34,7 @@ The heating time follows [M Sverige's engine-focused recommendations based on Ca
 
 ## Optional power and energy monitoring
 
-In each car's integration settings, optionally select the smart plug's power sensor in W or kW and its cumulative energy sensor in Wh or kWh. An energy sensor should have state class `total` or `total_increasing`. Save settings between heating sessions: saving reloads the integration and stops a session it controls. The card can show current power and the energy used during the current or last heating session. The energy reading uses the most recently reported values; if the plug reports its final value late, it may be too low. If a session reading cannot be calculated reliably, it is shown as unavailable rather than guessed.
+In each car's integration settings, optionally select the smart plug's power sensor in W or kW. The integration estimates energy consumption from the power readings over time; no separate energy sensor is needed. The card shows current power and estimated energy for the current or most recent heating session. The last reported power is assumed to remain constant until the next reading, so accuracy depends on how often the sensor reports changes. If a session cannot be calculated reliably, its energy is shown as unavailable. Save settings between heating sessions: saving reloads the integration and stops a session it controls.
 
 With a power sensor selected and low-power alerts enabled, the integration warns when the switch is on but power stays below the configured threshold. The defaults are 10 W and five minutes; both can be changed, and alerts can be switched off separately. A notification appears in Home Assistant. You can also select an optional notification entity, such as a phone running the Home Assistant app, to receive it there. Each channel notifies at most once per switch-on period. No reading or an unavailable sensor is not treated as zero power. Low power can have other causes, including a thermostat; check the cable and equipment.
 
@@ -42,7 +42,7 @@ Optionally choose a fixed electricity price per kWh or a price sensor and curren
 
 ## Heating history
 
-The integration stores up to the 1,000 most recent switch-on periods separately for each vehicle. The companion card shows their start, end, duration and measured energy when available. A switch-on period does not prove the heater was consuming power. History is collected from version 0.7.0 onward; older sessions are not reconstructed. Sessions can be recorded without an energy sensor, and unavailable or incomplete readings are not shown as zero.
+The integration stores up to the 1,000 most recent switch-on periods separately for each vehicle. The companion card shows their start, end, duration and estimated energy when available. A switch-on period does not prove the heater was consuming power. History is collected from version 0.7.0 onward; older sessions are not reconstructed. Sessions can be recorded without a power sensor, and unavailable or incomplete energy estimates are not shown as zero.
 
 Daily, weekly and monthly summaries use those recorded, completed sessions, grouped by their local end date. If a session crosses a period boundary, its energy cannot be split reliably; the affected periods are marked incomplete and the end-period sum can be too high. Missing measurements and incomplete history are also marked. Up to 366 daily, 104 weekly and 36 monthly periods are displayed.
 

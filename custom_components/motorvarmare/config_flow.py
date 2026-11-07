@@ -84,9 +84,6 @@ def _schema(values: dict[str, Any] | None = None) -> vol.Schema:
             optional_entity(CONF_POWER_ENTITY): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
-            optional_entity(CONF_ENERGY_ENTITY): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor")
-            ),
             optional_entity(CONF_ENERGY_PRICE_ENTITY): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),

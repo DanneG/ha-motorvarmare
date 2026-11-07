@@ -94,51 +94,62 @@ class EnergyMonitorTests(unittest.TestCase):
         self.assertTrue(self.monitor.alarm_active)
 
     @mocks.sync_test
-    async def test_energy_delta_and_freeze_on_off(self):
+    async def test_energy_integrates_power_and_freezes_on_off(self):
+        self.hass.states["sensor.power"].state = "1000"
         await self.switch("on")
-        self.assertEqual(self.monitor.energy_session_status, "measuring")
-        self.hass.states["sensor.energy"] = state("1.3", "kWh", "total")
+        self.advance(15)
+        self.hass.states["sensor.power"].state = "2000"
         await self.monitor.async_update()
-        self.assertAlmostEqual(self.monitor.session_energy_kwh, 0.3)
-        self.hass.states["sensor.energy"].state = "1.4"
+        self.assertAlmostEqual(self.monitor.session_energy_kwh, 0.25)
+        self.advance(15)
+        self.hass.states["sensor.power"].state = "0"
         await self.switch("off")
         self.assertEqual(self.monitor.energy_session_status, "complete")
-        self.assertAlmostEqual(self.monitor.session_energy_kwh, 0.4)
-        self.hass.states["sensor.energy"].state = "1.9"
+        self.assertAlmostEqual(self.monitor.session_energy_kwh, 0.75)
+        self.assertAlmostEqual(self.monitor.heating_history[0]["energy_kwh"], 0.75)
+        self.advance(30)
         await self.monitor.async_update()
-        self.assertAlmostEqual(self.monitor.session_energy_kwh, 0.4)
+        self.assertAlmostEqual(self.monitor.session_energy_kwh, 0.75)
 
     @mocks.sync_test
-    async def test_energy_reset_or_missing_sample_marks_session_incomplete(self):
+    async def test_power_outage_marks_energy_incomplete_even_after_recovery(self):
+        self.hass.states["sensor.power"].state = "500"
         await self.switch("on")
-        self.hass.states["sensor.energy"].state = "1100"
-        await self.monitor.async_update()
-        self.hass.states["sensor.energy"].state = "2"
+        self.advance(5)
+        self.hass.states["sensor.power"].state = "unavailable"
         await self.monitor.async_update()
         self.assertEqual(self.monitor.energy_session_status, "incomplete")
-        self.assertIsNone(self.monitor.session_energy_kwh)
-        await self.switch("off")
-        await self.switch("on")
-        self.hass.states["sensor.energy"].state = "unavailable"
-        await self.monitor.async_update()
         self.assertFalse(self.monitor.energy_sensor_available)
-        self.hass.states["sensor.energy"].state = "3"
-        await self.monitor.async_update()
+        self.hass.states["sensor.power"].state = "500"
+        self.advance(5)
+        await self.switch("off")
         self.assertIsNone(self.monitor.session_energy_kwh)
-        self.assertEqual(self.monitor.energy_session_status, "incomplete")
+        self.assertIsNone(self.monitor.heating_history[0]["energy_kwh"])
 
     @mocks.sync_test
-    async def test_starting_without_baseline_or_already_on_is_not_complete(self):
-        self.hass.states["sensor.energy"].state = "unknown"
+    async def test_starting_without_power_or_already_on_is_not_complete(self):
+        self.hass.states["sensor.power"].state = "unknown"
         await self.switch("on")
-        self.hass.states["sensor.energy"].state = "1100"
+        self.hass.states["sensor.power"].state = "500"
         await self.monitor.async_update()
         self.assertIsNone(self.monitor.session_energy_kwh)
         self.assertEqual(self.monitor.energy_session_status, "incomplete")
         fresh = EnergyMonitor(self.hass, self.entry, self.config, lambda: None)
-        await fresh.async_update()  # initially observed on; start is unknown
+        await fresh.async_update()
         self.assertIsNone(fresh.session_energy_kwh)
         self.assertEqual(fresh.energy_session_status, "incomplete")
+
+    @mocks.sync_test
+    async def test_unchanged_reading_is_estimated_and_backwards_clock_invalidates(self):
+        self.hass.states["sensor.power"].state = "500"
+        self.hass.states["sensor.power"].last_reported = self.now
+        await self.switch("on")
+        self.advance(120)
+        await self.monitor.async_update()
+        self.assertAlmostEqual(self.monitor.session_energy_kwh, 1.0)
+        self.advance(-1)
+        await self.monitor.async_update()
+        self.assertIsNone(self.monitor.session_energy_kwh)
 
     @mocks.sync_test
     async def test_unavailable_switch_invalidates_energy_session_and_resets_alarm_delay(self):
@@ -214,7 +225,7 @@ class EnergyMonitorTests(unittest.TestCase):
         queued = []
         self.hass.async_create_task = queued.append
         def track(hass, entities, callback):
-            self.assertEqual(set(entities), {"switch.heater", "sensor.energy", "sensor.power"})
+            self.assertEqual(set(entities), {"switch.heater", "sensor.power"})
             self.listener = callback
             return lambda: None
         event_api.async_track_state_change_event = track
@@ -226,8 +237,9 @@ class EnergyMonitorTests(unittest.TestCase):
                 self.hass.states[entity] = new_state
                 self.listener(types.SimpleNamespace(data={"entity_id": entity, "new_state": new_state}))
 
+            emit("sensor.power", state("1000", "W"))
             emit("switch.heater", state("on", None))
-            emit("sensor.energy", state("1500", "Wh", "total_increasing"))
+            self.advance(30)
             emit("switch.heater", state("off", None))
             while queued:
                 await queued.pop(0)
@@ -247,9 +259,9 @@ class EnergyMonitorTests(unittest.TestCase):
             self.assertFalse(self.monitor.alarm_active)
             self.assertEqual(self.hass.calls, [])
 
-            # A short reset between two queued energy events is not lost.
-            emit("sensor.energy", state("10", "Wh", "total_increasing"))
-            emit("sensor.energy", state("1600", "Wh", "total_increasing"))
+            # A short outage between two queued power events is not lost.
+            emit("sensor.power", state("unavailable", "W"))
+            emit("sensor.power", state("1600", "W"))
             while queued:
                 await queued.pop(0)
             self.assertEqual(self.monitor.energy_session_status, "incomplete")

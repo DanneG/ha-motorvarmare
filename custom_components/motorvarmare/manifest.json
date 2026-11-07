@@ -1,12 +1,14 @@
 {
   "domain": "motorvarmare",
   "name": "Motorvärmare",
-  "codeowners": ["@DanneG"],
+  "codeowners": [
+    "@DanneG"
+  ],
   "config_flow": true,
   "documentation": "https://github.com/DanneG/ha-motorvarmare",
   "integration_type": "service",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/DanneG/ha-motorvarmare/issues",
   "requirements": [],
-  "version": "0.9.0"
+  "version": "0.9.1"
 }
