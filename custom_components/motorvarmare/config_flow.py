@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from typing import Any
 
@@ -20,6 +21,10 @@ from .const import (
     CONF_POWER_MIN_WATTS,
     CONF_POWER_DELAY_MINUTES,
     CONF_POWER_ALARM_ENABLED,
+    CONF_POWER_DEVIATION_ENABLED,
+    CONF_POWER_EXPECTED_MIN_WATTS,
+    CONF_POWER_EXPECTED_MAX_WATTS,
+    CONF_POWER_DEVIATION_DELAY_MINUTES,
     CONF_NOTIFY_ENTITY,
     CONF_WEATHER_ENTITY,
     CONF_ENERGY_PRICE,
@@ -31,6 +36,8 @@ from .const import (
     DEFAULT_POWER_MIN_WATTS,
     DEFAULT_POWER_DELAY_MINUTES,
     DEFAULT_POWER_ALARM_ENABLED,
+    DEFAULT_POWER_DEVIATION_ENABLED,
+    DEFAULT_POWER_DEVIATION_DELAY_MINUTES,
     CONF_SWITCH,
     CONF_TAG,
     CONF_TEMPERATURE,
@@ -63,6 +70,12 @@ def _schema(values: dict[str, Any] | None = None) -> vol.Schema:
         value = values.get(key)
         return (vol.Optional(key, description={"suggested_value": value})
                 if value else vol.Optional(key))
+
+    def optional_number(key: str):
+        """Allow clearing a stored number, including an initial zero."""
+        value = values.get(key)
+        return (vol.Optional(key, description={"suggested_value": value})
+                if value is not None else vol.Optional(key))
 
     multiline = selector.TextSelector(selector.TextSelectorConfig(multiline=True))
     return vol.Schema(
@@ -104,6 +117,15 @@ def _schema(values: dict[str, Any] | None = None) -> vol.Schema:
                     min=1, max=120, step=1, mode=selector.NumberSelectorMode.BOX,
                     unit_of_measurement="min",
                 )),
+            vol.Required(CONF_POWER_DEVIATION_ENABLED, default=values.get(CONF_POWER_DEVIATION_ENABLED, DEFAULT_POWER_DEVIATION_ENABLED)): bool,
+            optional_number(CONF_POWER_EXPECTED_MIN_WATTS): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=100000, step="any", mode=selector.NumberSelectorMode.BOX, unit_of_measurement="W")
+            ),
+            optional_number(CONF_POWER_EXPECTED_MAX_WATTS): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=100000, step="any", mode=selector.NumberSelectorMode.BOX, unit_of_measurement="W")
+            ),
+            vol.Required(CONF_POWER_DEVIATION_DELAY_MINUTES, default=values.get(CONF_POWER_DEVIATION_DELAY_MINUTES, DEFAULT_POWER_DEVIATION_DELAY_MINUTES)):
+                selector.NumberSelector(selector.NumberSelectorConfig(min=1, max=120, step=1, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="min")),
             optional_entity(CONF_NOTIFY_ENTITY): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="notify")
             ),
@@ -139,6 +161,27 @@ def _error(
         for key in (CONF_EVENT_TITLES, CONF_EVENT_KEYWORDS)
     ):
         return "missing_calendar_rule"
+    bounds = []
+    for key in (CONF_POWER_EXPECTED_MIN_WATTS, CONF_POWER_EXPECTED_MAX_WATTS):
+        value = user_input.get(key)
+        if value is None or value == "":
+            bounds.append(None)
+            continue
+        try:
+            value = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return "invalid_power_range"
+        if not math.isfinite(value) or value < 0 or value > 100000:
+            return "invalid_power_range"
+        user_input[key] = value
+        bounds.append(value)
+    if bounds[0] is not None and bounds[1] is not None and bounds[0] >= bounds[1]:
+        return "invalid_power_range"
+    if user_input.get(CONF_POWER_DEVIATION_ENABLED):
+        if not user_input.get(CONF_POWER_ENTITY):
+            return "power_deviation_needs_sensor"
+        if bounds == [None, None]:
+            return "power_deviation_needs_limit"
     for entry in hass.config_entries.async_entries(DOMAIN):
         if entry.entry_id == own_entry_id:
             continue
@@ -154,6 +197,9 @@ def _normalize_optional_entities(user_input: dict[str, Any]) -> None:
         user_input[key] = user_input.get(key) or ""
     # An explicit None removes a price inherited from the original entry data.
     user_input[CONF_ENERGY_PRICE] = user_input.get(CONF_ENERGY_PRICE)
+    # Explicit None prevents a cleared bound from falling back to entry.data.
+    for key in (CONF_POWER_EXPECTED_MIN_WATTS, CONF_POWER_EXPECTED_MAX_WATTS):
+        user_input[key] = user_input.get(key) if user_input.get(key) != "" else None
 
 
 class MotorvarmareConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):

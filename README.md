@@ -38,13 +38,21 @@ In each car's integration settings, optionally select the smart plug's power sen
 
 With a power sensor selected and low-power alerts enabled, the integration warns when the switch is on but power stays below the configured threshold. The defaults are 10 W and five minutes; both can be changed, and alerts can be switched off separately. A notification appears in Home Assistant. You can also select an optional notification entity, such as a phone running the Home Assistant app, to receive it there. Each channel notifies at most once per switch-on period. No reading or an unavailable sensor is not treated as zero power. Low power can have other causes, including a thermostat; check the cable and equipment.
 
-Optionally choose a fixed electricity price per kWh or a price sensor and currency. If a sensor is selected, its price at the session's end is used; no fixed-price fallback is silently substituted if that sensor is unavailable. The displayed cost is an **estimate**, not a time-weighted bill, and older sessions are not priced retroactively. Missing readings or mixed currencies are marked incomplete.
+Optionally enable an additional unusual-power warning and set a lower limit, an upper limit, or both. A power sensor is required; the power must remain outside the interval for the configured delay, which defaults to five minutes. The existing low-power warning remains separate. A thermostat or other connected load can also cause a deviation.
+
+Optionally choose a fixed electricity price per kWh or a price sensor and currency. With a power sensor, estimated cost is accumulated from power and price over time, using the most recently reported values between updates. Missing readings, an interruption or a restart during a session can make its cost unavailable. A selected price sensor takes priority and an unavailable price does not silently fall back to the fixed price. Legacy configurations using only a cumulative energy sensor continue to estimate cost using the price at the session's end. The estimate is not an electricity bill; older sessions are not re-priced and mixed currencies or missing values are marked incomplete.
 
 ## Heating history
 
-The integration stores up to the 1,000 most recent switch-on periods separately for each vehicle. The companion card shows their start, end, duration and estimated energy when available. A switch-on period does not prove the heater was consuming power. History is collected from version 0.7.0 onward; older sessions are not reconstructed. Sessions can be recorded without a power sensor, and unavailable or incomplete energy estimates are not shown as zero.
+The integration stores up to the 1,000 most recent switch-on periods separately for each vehicle. Each new session also records the measured outdoor temperature at its start when available. The companion card shows their start, end, duration and estimated energy when available. A switch-on period does not prove the heater was consuming power. History is collected from version 0.7.0 onward; older sessions are not reconstructed. Sessions can be recorded without a power sensor, and unavailable or incomplete energy estimates are not shown as zero.
 
 Daily, weekly and monthly summaries use those recorded, completed sessions, grouped by their local end date. If a session crosses a period boundary, its energy cannot be split reliably; the affected periods are marked incomplete and the end-period sum can be too high. Missing measurements and incomplete history are also marked. Up to 366 daily, 104 weekly and 36 monthly periods are displayed.
+
+## Additional sensors
+
+Each car exposes separate sensors for the next departure, planned start, remaining heating time, current or last session energy, daily/weekly/monthly recorded energy, and estimated energy and cost for the next heating. They can be used in other dashboards and automations. The period values cover recorded history rather than the plug’s lifetime total; incomplete periods are unavailable, with partial information retained in attributes.
+
+The next-heating estimate uses the average power of a previous complete session and the currently calculated heating time, including optional post-departure heating. Cost uses the current price, not future electricity prices. The result is an estimate and can differ with weather, thermostat behavior and reporting frequency. It is unavailable without a complete recorded session for the currently selected switch and measurement source, or when no eligible future heating is planned. Older unlabelled history is preserved but does not provide an estimate until a new complete session has been recorded.
 
 ## Operation and safety
 

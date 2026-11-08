@@ -212,6 +212,42 @@ class ConfigFlowTests(unittest.TestCase):
         self.assertEqual(merged["power_min_watts"], 12)
         self.assertIs(merged["power_alarm_enabled"], False)
 
+    def test_power_deviation_is_optional_and_bounds_are_clearable(self):
+        fields = {key.key: key.kwargs for key in self.flow._schema({
+            "power_deviation_enabled": True,
+            "power_expected_min_watts": 0,
+            "power_expected_max_watts": 900,
+            "power_deviation_delay_minutes": 8,
+        }).schema}
+        self.assertTrue(fields["power_deviation_enabled"]["default"])
+        self.assertEqual(fields["power_expected_min_watts"]["description"]["suggested_value"], 0)
+        self.assertEqual(fields["power_expected_max_watts"]["description"]["suggested_value"], 900)
+        self.assertEqual(fields["power_deviation_delay_minutes"]["default"], 8)
+        defaults = {key.key: key.kwargs for key in self.flow._schema().schema}
+        self.assertFalse(defaults["power_deviation_enabled"]["default"])
+        self.assertEqual(defaults["power_deviation_delay_minutes"]["default"], 5)
+        data = {"power_expected_min_watts": ""}
+        self.flow._normalize_optional_entities(data)
+        self.assertIsNone(data["power_expected_min_watts"])
+        self.assertIsNone(data["power_expected_max_watts"])
+
+    def test_power_deviation_validation_requires_sensor_and_valid_limits(self):
+        base = {"name": "Bil", "switch_entity": "switch.car", "power_deviation_enabled": True}
+        self.assertEqual(self.flow._error(self.hass, dict(base)), "power_deviation_needs_sensor")
+        base["power_entity"] = "sensor.power"
+        self.assertEqual(self.flow._error(self.hass, dict(base)), "power_deviation_needs_limit")
+        for values in ({"power_expected_min_watts": 500},
+                       {"power_expected_max_watts": 1000},
+                       {"power_expected_min_watts": 0, "power_expected_max_watts": 1000}):
+            self.assertIsNone(self.flow._error(self.hass, {**base, **values}))
+        for values in ({"power_expected_min_watts": 1000, "power_expected_max_watts": 500},
+                       {"power_expected_min_watts": 10, "power_expected_max_watts": 10},
+                       {"power_expected_min_watts": -1},
+                       {"power_expected_max_watts": float("nan")},
+                       {"power_expected_max_watts": float("inf")},
+                       {"power_expected_min_watts": "not-a-number"}):
+            self.assertEqual(self.flow._error(self.hass, {**base, **values}), "invalid_power_range")
+
 
 if __name__ == "__main__":
     unittest.main()

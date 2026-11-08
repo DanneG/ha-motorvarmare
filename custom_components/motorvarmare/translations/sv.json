@@ -22,7 +22,11 @@
           "energy_price": "Fast elpris per kWh (valfritt)",
           "energy_currency": "Valuta",
           "operation_alerts_enabled": "Larma vid driftproblem",
-          "temperature_max_age_hours": "Varna om temperaturvärdet är äldre än"
+          "temperature_max_age_hours": "Varna om temperaturvärdet är äldre än",
+          "power_deviation_enabled": "Larma vid avvikande effekt",
+          "power_expected_min_watts": "Lägsta normala effekt (valfritt)",
+          "power_expected_max_watts": "Högsta normala effekt (valfritt)",
+          "power_deviation_delay_minutes": "Fördröjning före effektavvikelselarm"
         },
         "data_description": {
           "event_titles": "Ange fullständiga händelsetitlar, en per rad eller separerade med kommatecken. Exempel: TILL JOBBET. Mellanslag får ingå.",
@@ -34,11 +38,15 @@
           "post_departure_enabled": "Låt schemalagd värmning fortsätta i 30 minuter efter avresan, utöver tiden före avresa. Gäller inte Starta nu. Temperaturspärren gäller fortfarande.",
           "power_alarm_enabled": "Varna när värmaren är på men effekten förblir under gränsen. Energiövervakningen fungerar även om larmet är avstängt.",
           "weather_entity": "Använd timprognos för uppskattade framtida tider i kalendern. Den faktiska utetemperaturen styr värmaren.",
-          "energy_price_entity": "Om vald används sensorns pris vid körningens slut för en uppskattning. Sensorpriset har företräde framför fast pris.",
+          "energy_price_entity": "Om en sensor väljs uppskattas kostnaden löpande utifrån rapporterad effekt och pris; sensorn går före fast pris. Saknade värden kan göra kostnaden otillgänglig.",
           "energy_price": "Ange ett fast pris per kWh i vald valuta. Lämna tomt om du inte vill visa kostnad.",
           "energy_currency": "Trebokstavskod, exempelvis SEK eller EUR.",
           "operation_alerts_enabled": "Varna i Home Assistant och till vald notismottagare om brytare, temperatur eller kalender inte fungerar.",
-          "temperature_max_age_hours": "Ange 0 för att stänga av åldersvarningen. Sensorer rapporterar olika ofta."
+          "temperature_max_age_hours": "Ange 0 för att stänga av åldersvarningen. Sensorer rapporterar olika ofta.",
+          "power_deviation_enabled": "Varna om effekten ligger utanför det valda intervallet under fördröjningen. Kräver en effektsensor och minst en gräns. En termostat eller annan last kan också orsaka en avvikelse.",
+          "power_expected_min_watts": "Valfri undre gräns i watt. Lågeffektslarmet har en separat gräns.",
+          "power_expected_max_watts": "Valfri övre gräns i watt.",
+          "power_deviation_delay_minutes": "Effekten måste vara utanför intervallet så länge innan larm skickas."
         }
       }
     },
@@ -47,7 +55,10 @@
       "invalid_tag": "Ange en kalenderhändelsetagg.",
       "missing_calendar_rule": "Ange minst en titel, ett ord eller en tagg för den valda kalendern.",
       "duplicate_switch": "Brytaren används redan av en annan bil.",
-      "invalid_currency": "Ange en valutakod med tre bokstäver, till exempel SEK."
+      "invalid_currency": "Ange en valutakod med tre bokstäver, till exempel SEK.",
+      "invalid_power_range": "Ange giltiga effektgränser där den lägre är mindre än den högre.",
+      "power_deviation_needs_sensor": "Välj en effektsensor för effektavvikelselarmet.",
+      "power_deviation_needs_limit": "Ange minst en effektgräns för avvikelselarmet."
     }
   },
   "options": {
@@ -73,7 +84,11 @@
           "energy_price": "Fast elpris per kWh (valfritt)",
           "energy_currency": "Valuta",
           "operation_alerts_enabled": "Larma vid driftproblem",
-          "temperature_max_age_hours": "Varna om temperaturvärdet är äldre än"
+          "temperature_max_age_hours": "Varna om temperaturvärdet är äldre än",
+          "power_deviation_enabled": "Larma vid avvikande effekt",
+          "power_expected_min_watts": "Lägsta normala effekt (valfritt)",
+          "power_expected_max_watts": "Högsta normala effekt (valfritt)",
+          "power_deviation_delay_minutes": "Fördröjning före effektavvikelselarm"
         },
         "data_description": {
           "event_titles": "Ange fullständiga händelsetitlar, en per rad eller separerade med kommatecken. Exempel: TILL JOBBET. Mellanslag får ingå.",
@@ -85,11 +100,15 @@
           "post_departure_enabled": "Låt schemalagd värmning fortsätta i 30 minuter efter avresan, utöver tiden före avresa. Gäller inte Starta nu. Temperaturspärren gäller fortfarande.",
           "power_alarm_enabled": "Varna när värmaren är på men effekten förblir under gränsen. Energiövervakningen fungerar även om larmet är avstängt.",
           "weather_entity": "Använd timprognos för uppskattade framtida tider i kalendern. Den faktiska utetemperaturen styr värmaren.",
-          "energy_price_entity": "Om vald används sensorns pris vid körningens slut för en uppskattning. Sensorpriset har företräde framför fast pris.",
+          "energy_price_entity": "Om en sensor väljs uppskattas kostnaden löpande utifrån rapporterad effekt och pris; sensorn går före fast pris. Saknade värden kan göra kostnaden otillgänglig.",
           "energy_price": "Ange ett fast pris per kWh i vald valuta. Lämna tomt om du inte vill visa kostnad.",
           "energy_currency": "Trebokstavskod, exempelvis SEK eller EUR.",
           "operation_alerts_enabled": "Varna i Home Assistant och till vald notismottagare om brytare, temperatur eller kalender inte fungerar.",
-          "temperature_max_age_hours": "Ange 0 för att stänga av åldersvarningen. Sensorer rapporterar olika ofta."
+          "temperature_max_age_hours": "Ange 0 för att stänga av åldersvarningen. Sensorer rapporterar olika ofta.",
+          "power_deviation_enabled": "Varna om effekten ligger utanför det valda intervallet under fördröjningen. Kräver en effektsensor och minst en gräns. En termostat eller annan last kan också orsaka en avvikelse.",
+          "power_expected_min_watts": "Valfri undre gräns i watt. Lågeffektslarmet har en separat gräns.",
+          "power_expected_max_watts": "Valfri övre gräns i watt.",
+          "power_deviation_delay_minutes": "Effekten måste vara utanför intervallet så länge innan larm skickas."
         }
       }
     },
@@ -98,7 +117,10 @@
       "invalid_tag": "Ange en kalenderhändelsetagg.",
       "missing_calendar_rule": "Ange minst en titel, ett ord eller en tagg för den valda kalendern.",
       "duplicate_switch": "Brytaren används redan av en annan bil.",
-      "invalid_currency": "Ange en valutakod med tre bokstäver, till exempel SEK."
+      "invalid_currency": "Ange en valutakod med tre bokstäver, till exempel SEK.",
+      "invalid_power_range": "Ange giltiga effektgränser där den lägre är mindre än den högre.",
+      "power_deviation_needs_sensor": "Välj en effektsensor för effektavvikelselarmet.",
+      "power_deviation_needs_limit": "Ange minst en effektgräns för avvikelselarmet."
     }
   },
   "entity": {
@@ -144,6 +166,33 @@
           "manually_stopped": "Manuellt avstängd för denna avresa",
           "paused": "Pausad"
         }
+      },
+      "next_departure": {
+        "name": "Nästa avresa"
+      },
+      "planned_start": {
+        "name": "Planerad start"
+      },
+      "remaining_heating": {
+        "name": "Återstående värmetid"
+      },
+      "session_energy": {
+        "name": "Energi under värmningen"
+      },
+      "energy_today": {
+        "name": "Energi i dag"
+      },
+      "energy_week": {
+        "name": "Energi denna vecka"
+      },
+      "energy_month": {
+        "name": "Energi denna månad"
+      },
+      "next_estimated_energy": {
+        "name": "Uppskattad energi för nästa värmning"
+      },
+      "next_estimated_cost": {
+        "name": "Uppskattad kostnad för nästa värmning"
       }
     },
     "time": {

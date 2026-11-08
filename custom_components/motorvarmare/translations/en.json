@@ -22,7 +22,11 @@
           "energy_price": "Fixed electricity price per kWh (optional)",
           "energy_currency": "Currency",
           "operation_alerts_enabled": "Notify about operational problems",
-          "temperature_max_age_hours": "Warn when the temperature reading is older than"
+          "temperature_max_age_hours": "Warn when the temperature reading is older than",
+          "power_deviation_enabled": "Warn about unusual power",
+          "power_expected_min_watts": "Minimum normal power (optional)",
+          "power_expected_max_watts": "Maximum normal power (optional)",
+          "power_deviation_delay_minutes": "Delay before unusual-power warning"
         },
         "data_description": {
           "event_titles": "Enter complete event titles, one per line or separated by commas. For example: TILL JOBBET. Spaces are allowed.",
@@ -34,11 +38,15 @@
           "post_departure_enabled": "Keep scheduled heating on for 30 minutes after departure, in addition to pre-departure heating. Does not apply to Start now; the temperature limit still applies.",
           "power_alarm_enabled": "Warn when the heater is on but power remains below the threshold. Turning this off does not disable energy monitoring.",
           "weather_entity": "Use hourly forecasts for estimated future calendar times. The measured outdoor temperature still controls the heater.",
-          "energy_price_entity": "If selected, the sensor price at the end of the session is used for an estimate and takes priority over the fixed price.",
+          "energy_price_entity": "If selected, cost is estimated over time from reported power and price; the sensor takes precedence over the fixed price. Missing readings can make the cost unavailable.",
           "energy_price": "Set a fixed price per kWh in the selected currency. Leave empty to disable estimated costs.",
           "energy_currency": "Three-letter currency code, such as SEK or EUR.",
           "operation_alerts_enabled": "Notify in Home Assistant and the selected notification target when the switch, temperature or calendar has a problem.",
-          "temperature_max_age_hours": "Set to 0 to disable age warnings. Sensors report at different intervals."
+          "temperature_max_age_hours": "Set to 0 to disable age warnings. Sensors report at different intervals.",
+          "power_deviation_enabled": "Warn if power stays outside the chosen range for the delay. Requires a power sensor and at least one limit. A thermostat or another load can also cause a deviation.",
+          "power_expected_min_watts": "Optional lower limit in watts. The low-power warning uses a separate threshold.",
+          "power_expected_max_watts": "Optional upper limit in watts.",
+          "power_deviation_delay_minutes": "Power must remain outside the range for this long before a warning is sent."
         }
       }
     },
@@ -47,7 +55,10 @@
       "invalid_tag": "Enter a non-empty calendar tag.",
       "missing_calendar_rule": "Enter a title, word or tag for the selected calendar.",
       "duplicate_switch": "This switch is already used by another car.",
-      "invalid_currency": "Enter a three-letter currency code, such as SEK."
+      "invalid_currency": "Enter a three-letter currency code, such as SEK.",
+      "invalid_power_range": "Enter valid power limits with the minimum below the maximum.",
+      "power_deviation_needs_sensor": "Select a power sensor for unusual-power warnings.",
+      "power_deviation_needs_limit": "Enter at least one power limit for unusual-power warnings."
     }
   },
   "options": {
@@ -73,7 +84,11 @@
           "energy_price": "Fixed electricity price per kWh (optional)",
           "energy_currency": "Currency",
           "operation_alerts_enabled": "Notify about operational problems",
-          "temperature_max_age_hours": "Warn when the temperature reading is older than"
+          "temperature_max_age_hours": "Warn when the temperature reading is older than",
+          "power_deviation_enabled": "Warn about unusual power",
+          "power_expected_min_watts": "Minimum normal power (optional)",
+          "power_expected_max_watts": "Maximum normal power (optional)",
+          "power_deviation_delay_minutes": "Delay before unusual-power warning"
         },
         "data_description": {
           "event_titles": "Enter complete event titles, one per line or separated by commas. For example: TILL JOBBET. Spaces are allowed.",
@@ -85,11 +100,15 @@
           "post_departure_enabled": "Keep scheduled heating on for 30 minutes after departure, in addition to pre-departure heating. Does not apply to Start now; the temperature limit still applies.",
           "power_alarm_enabled": "Warn when the heater is on but power remains below the threshold. Turning this off does not disable energy monitoring.",
           "weather_entity": "Use hourly forecasts for estimated future calendar times. The measured outdoor temperature still controls the heater.",
-          "energy_price_entity": "If selected, the sensor price at the end of the session is used for an estimate and takes priority over the fixed price.",
+          "energy_price_entity": "If selected, cost is estimated over time from reported power and price; the sensor takes precedence over the fixed price. Missing readings can make the cost unavailable.",
           "energy_price": "Set a fixed price per kWh in the selected currency. Leave empty to disable estimated costs.",
           "energy_currency": "Three-letter currency code, such as SEK or EUR.",
           "operation_alerts_enabled": "Notify in Home Assistant and the selected notification target when the switch, temperature or calendar has a problem.",
-          "temperature_max_age_hours": "Set to 0 to disable age warnings. Sensors report at different intervals."
+          "temperature_max_age_hours": "Set to 0 to disable age warnings. Sensors report at different intervals.",
+          "power_deviation_enabled": "Warn if power stays outside the chosen range for the delay. Requires a power sensor and at least one limit. A thermostat or another load can also cause a deviation.",
+          "power_expected_min_watts": "Optional lower limit in watts. The low-power warning uses a separate threshold.",
+          "power_expected_max_watts": "Optional upper limit in watts.",
+          "power_deviation_delay_minutes": "Power must remain outside the range for this long before a warning is sent."
         }
       }
     },
@@ -98,7 +117,10 @@
       "invalid_tag": "Enter a non-empty calendar tag.",
       "missing_calendar_rule": "Enter a title, word or tag for the selected calendar.",
       "duplicate_switch": "This switch is already used by another car.",
-      "invalid_currency": "Enter a three-letter currency code, such as SEK."
+      "invalid_currency": "Enter a three-letter currency code, such as SEK.",
+      "invalid_power_range": "Enter valid power limits with the minimum below the maximum.",
+      "power_deviation_needs_sensor": "Select a power sensor for unusual-power warnings.",
+      "power_deviation_needs_limit": "Enter at least one power limit for unusual-power warnings."
     }
   },
   "entity": {
@@ -144,6 +166,33 @@
           "manually_stopped": "Manually stopped for this departure",
           "paused": "Paused"
         }
+      },
+      "next_departure": {
+        "name": "Next departure"
+      },
+      "planned_start": {
+        "name": "Planned start"
+      },
+      "remaining_heating": {
+        "name": "Remaining heating time"
+      },
+      "session_energy": {
+        "name": "Heating session energy"
+      },
+      "energy_today": {
+        "name": "Energy today"
+      },
+      "energy_week": {
+        "name": "Energy this week"
+      },
+      "energy_month": {
+        "name": "Energy this month"
+      },
+      "next_estimated_energy": {
+        "name": "Estimated energy for next heating"
+      },
+      "next_estimated_cost": {
+        "name": "Estimated cost for next heating"
       }
     },
     "time": {

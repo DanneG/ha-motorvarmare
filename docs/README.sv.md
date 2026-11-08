@@ -38,13 +38,21 @@ I inställningarna för varje bil kan du välja smartpluggens effektsensor i W e
 
 Om du har valt en effektsensor och aktiverat lågeffektslarmet kan integrationen varna när brytaren är på men effekten ligger under gränsen. Förvalet är 10 W under fem minuter, och båda värdena går att ändra. Larmet kan stängas av separat. En notis visas i Home Assistant. Du kan även välja en notisentitet, till exempel en telefon med Home Assistant-appen, för att få notisen dit. Varje kanal meddelar högst en gång per påslag. Ett saknat eller otillgängligt mätvärde räknas inte som noll watt. Låg effekt kan även ha andra orsaker, till exempel en termostat; kontrollera kabeln och utrustningen.
 
-Välj vid behov ett fast elpris per kWh eller en prissensor och valuta. Om en sensor är vald används dess pris vid körningens slut; fast pris används inte som tyst reserv om sensorn saknas. Kostnaden är en **uppskattning**, inte en tidsfördelad faktisk elkostnad, och gamla körningar prissätts inte i efterhand. Saknade värden och blandade valutor markeras som ofullständiga.
+Du kan även aktivera ett separat larm för avvikande effekt och ange en undre gräns, en övre gräns eller båda. Det kräver en effektsensor. Effekten måste ligga utanför intervallet under den valda fördröjningen, som är fem minuter som standard. Det vanliga lågeffektslarmet fungerar separat. Även en termostat eller annan ansluten last kan orsaka en avvikelse.
+
+Välj vid behov ett fast elpris per kWh eller en prissensor och valuta. Med effektsensor summeras den uppskattade kostnaden löpande utifrån effekten och priset, där senast rapporterade värden antas gälla tills de ändras. Saknade mätvärden, avbrott eller omstart under körningen kan göra kostnaden otillgänglig. En vald prissensor går före fast pris, och fast pris används inte som tyst reserv om sensorn saknas. Äldre konfigurationer med enbart en ackumulerande energisensor uppskattar fortfarande kostnaden med priset vid körningens slut. Kostnaden är en uppskattning, inte en elräkning; gamla körningar prissätts inte i efterhand och saknade värden eller blandade valutor markeras som ofullständiga.
 
 ## Historik över värmningar
 
-Integrationen sparar de 1 000 senaste perioderna då brytaren varit på separat för varje bil. I kortet kan du se start, stopp, gångtid och uppskattad energi när den finns tillgänglig. Att brytaren varit på betyder inte säkert att värmaren dragit effekt. Historiken börjar samlas in från version 0.7.0; äldre körningar återskapas inte. Körningar sparas även utan effektsensor, och saknade eller ofullständiga energiberäkningar visas inte som noll.
+Integrationen sparar de 1 000 senaste perioderna då brytaren varit på separat för varje bil. För nya körningar sparas även uppmätt utetemperatur vid starten när den är tillgänglig. I kortet kan du se start, stopp, gångtid och uppskattad energi när den finns tillgänglig. Att brytaren varit på betyder inte säkert att värmaren dragit effekt. Historiken börjar samlas in från version 0.7.0; äldre körningar återskapas inte. Körningar sparas även utan effektsensor, och saknade eller ofullständiga energiberäkningar visas inte som noll.
 
 Summor per dag, vecka och månad utgår från de registrerade, avslutade körningarna och grupperas efter lokalt slutdatum. Om en körning passerar en periodgräns går energin inte att dela upp tillförlitligt; berörda perioder markeras som ofullständiga och summan för slutperioden kan bli för hög. Även saknade mätvärden och ofullständig historik markeras. Upp till 366 dags-, 104 vecko- och 36 månadssummor visas.
+
+## Fler sensorer
+
+Varje bil får separata sensorer för nästa avresa, planerad start, återstående värmetid, energi för aktuell eller senaste körning, registrerad energi för dag/vecka/månad samt uppskattad energi och kostnad för nästa värmning. De kan användas i andra kort och automationer. Periodvärdena gäller registrerad historik, inte pluggens totala livstidsförbrukning; ofullständiga perioder visas som otillgängliga med partiell information i attribut.
+
+Uppskattningen för nästa värmning använder medeleffekten från en tidigare fullständig körning och den aktuellt beräknade gångtiden, inklusive eventuell eftervärmning. Kostnaden använder aktuellt pris, inte framtida elpriser. Resultatet är en uppskattning som kan påverkas av väder, termostat och hur ofta mätvärden rapporteras. Det visas som otillgängligt utan en fullständig körning för den valda brytaren och mätkällan, eller utan en lämplig kommande värmning. Äldre historik utan denna märkning finns kvar men kan inte ge en prognos förrän en ny fullständig körning har registrerats.
 
 ## Drift och säkerhet
 
