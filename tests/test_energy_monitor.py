@@ -181,7 +181,7 @@ class EnergyMonitorTests(unittest.TestCase):
         self.assertFalse(restored.alarm_active)
         self.advance(5)
         await restored.async_update()
-        self.assertTrue(restored.alarm_active)
+        self.assertFalse(restored.alarm_active)  # a restart cannot open a new start check
         self.assertEqual(len(self.hass.calls), 2)
 
     @mocks.sync_test

@@ -190,9 +190,8 @@ class NewEnergyFeaturesTests(unittest.TestCase):
         await self.monitor.async_update()
         self.advance(5)
         await self.monitor.async_update()
-        self.assertEqual(self.monitor.deviation_direction, "low")
-        self.assertEqual(len(self.notifications), 4)
-        self.assertIn("under", self.notifications[-1][2]["message"])
+        self.assertIsNone(self.monitor.deviation_direction)  # normal power was already seen at start
+        self.assertEqual(len(self.notifications), 2)
         await self.switch("off")
         self.assertFalse(self.monitor.deviation_alarm_active)
 

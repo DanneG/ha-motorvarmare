@@ -310,11 +310,19 @@ class EnergyMonitor:
         self._mobile_sent = False
         self._last_attempt = {}
         self._power_epoch = 0
+        # Low-power warnings belong to the observed start only. None means
+        # closed (including after a restart or an unknown switch state).
+        self._startup_started = None
+        self._low_start_deadline = None
+        self._deviation_low_deadline = None
         self.alarm_active = False
         self.deviation_alarm_active = False
         self._deviation_candidate = None
         self._deviation_since = None
         self._deviation_epoch = 0
+        # Only incoming events advance this generation. Processing a queued
+        # event must not make subsequent snapshots falsely stale.
+        self._deviation_event_epoch = 0
         self._deviation_persistent_sent = set()
         self._deviation_mobile_sent = set()
         self._deviation_last_attempt = {}
@@ -457,6 +465,28 @@ class EnergyMonitor:
         value = _finite_number(self.config.get("power_deviation_delay_minutes", 5))
         return value if value is not None and value >= 0 else 5
 
+    def _startup_power_fresh(self, power_state, snapshot, observed):
+        """Don't treat a pre-start high reading as proof the load started.
+
+        A power change observed after switch-on is fresh even for a sensor
+        that only reports changes. Home Assistant states also provide a
+        report/update timestamp; stubs without one use direct observations.
+        """
+        if self._startup_started is None or observed is None or observed < self._startup_started:
+            return False
+        if snapshot is not None and snapshot.get("power_event"):
+            return True
+        reported = getattr(power_state, "last_reported", None) or getattr(power_state, "last_updated", None)
+        if reported is not None and getattr(reported, "tzinfo", None):
+            # Devices can deliver the power reading just before the switch
+            # state event even though both describe the same physical start.
+            return dt_util.as_utc(reported) >= self._startup_started - timedelta(seconds=5)
+        return snapshot is None
+
+    def _low_start_open(self, deadline, now):
+        return bool(deadline is not None and self._startup_started is not None
+                    and self._startup_started <= now <= deadline)
+
     def _snapshot(self):
         return {
             "switch_entity": self.config.get("switch_entity"),
@@ -580,6 +610,7 @@ class EnergyMonitor:
                     self._low_since = None
                     self.alarm_active = False
                     self._deviation_epoch += 1
+                    self._deviation_event_epoch += 1
                     self._deviation_candidate = self._deviation_since = None
                     self.deviation_alarm_active = False
                 if entity == self.config.get("power_entity"):
@@ -593,6 +624,7 @@ class EnergyMonitor:
                         self.alarm_active = False
                     if self._deviation_for_power(power) != self._deviation_candidate:
                         self._deviation_epoch += 1
+                        self._deviation_event_epoch += 1
                         self._deviation_candidate = self._deviation_since = None
                         self.deviation_alarm_active = False
                 # Capture all three states at the instant of this event. A
@@ -604,7 +636,10 @@ class EnergyMonitor:
                             "price": self.hass.states.get(self.config.get("energy_price_entity")),
                             "temperature": self.hass.states.get(self.config.get("temperature_entity")),
                             "observed_at": dt_util.utcnow().isoformat(),
-                            "switch_event": switch_event}
+                            "switch_event": switch_event,
+                            "power_event": entity == self.config.get("power_entity"),
+                            "power_epoch": self._power_epoch,
+                            "deviation_event_epoch": self._deviation_event_epoch}
                 if switch_event:
                     snapshot["switch"] = new_state
                 elif entity == self.config.get("power_entity"):
@@ -773,6 +808,14 @@ class EnergyMonitor:
                 if new_session:
                     was_active = self._session_active
                     saw_off_before = self._saw_off
+                    observed = self._history_datetime(observed_at)
+                    # Only a genuinely observed off->on starts low-power
+                    # checks. Unknown/reloaded sessions cannot be certified.
+                    self._startup_started = observed if saw_off_before and not was_active else None
+                    self._low_start_deadline = (self._startup_started + timedelta(minutes=self._delay() + 5)
+                                                if self._startup_started else None)
+                    self._deviation_low_deadline = (self._startup_started + timedelta(minutes=self._deviation_delay() + 5)
+                                                    if self._startup_started else None)
                     self._session_active = True
                     self._switch_changed = changed_at
                     # If HA first sees an already-on plug there is no known
@@ -839,10 +882,25 @@ class EnergyMonitor:
                     else:
                         self._last_meter = meter
                         self._session_energy = max(0.0, meter - self._baseline)
-                if not self._stopped and self.config.get("power_alarm_enabled", True) and self.power_configured and power is not None and power < self._threshold():
-                    now = dt_util.utcnow()
+                now = dt_util.utcnow()
+                observed = self._history_datetime(observed_at)
+                fresh = self._startup_power_fresh(power_state, snapshot, observed)
+                # Once a fresh adequate value has arrived, later low readings
+                # (for example a disconnected car) cannot start a new alert.
+                if (not self._low_start_open(self._low_start_deadline, now)
+                        or (fresh and power is not None and power >= self._threshold())):
+                    self._low_start_deadline = None
+                normal_min = _finite_number(self.config.get("power_expected_min_watts"))
+                if (not self._low_start_open(self._deviation_low_deadline, now)
+                        or (fresh and power is not None and normal_min is not None
+                            and normal_min >= 0 and power >= normal_min)):
+                    self._deviation_low_deadline = None
+                current_low_snapshot = snapshot is None or snapshot.get("power_epoch", self._power_epoch) == self._power_epoch
+                if (not self._stopped and self.config.get("power_alarm_enabled", True)
+                        and self.power_configured and self._low_start_deadline is not None
+                        and current_low_snapshot and power is not None and power < self._threshold()):
                     if self._low_since is None:
-                        self._low_since = now
+                        self._low_since = observed or now
                     self.alarm_active = now - self._low_since >= timedelta(minutes=self._delay())
                     if self.alarm_active:
                         await self._send_notifications(self._power_epoch)
@@ -850,7 +908,10 @@ class EnergyMonitor:
                     self._low_since = None
                     self.alarm_active = False
                 direction = self._deviation_for_power(power) if not self._stopped and not self._stopping else None
-                now = dt_util.utcnow()
+                if direction == "low" and self._deviation_low_deadline is None:
+                    direction = None
+                if snapshot is not None and snapshot.get("deviation_event_epoch", self._deviation_event_epoch) != self._deviation_event_epoch:
+                    direction = None
                 if direction != self._deviation_candidate:
                     self._deviation_epoch += 1
                     self._deviation_candidate = direction
@@ -866,6 +927,7 @@ class EnergyMonitor:
                         await self._send_deviation_notifications(self._deviation_epoch, direction)
             elif off:
                 self._saw_off = True
+                self._startup_started = self._low_start_deadline = self._deviation_low_deadline = None
                 if self._session_active:
                     if self._integrate_power and not self._invalid:
                         self._integrate_power_until(observed_at, power, price)
@@ -909,6 +971,7 @@ class EnergyMonitor:
                 # An off reading before a connectivity gap does not prove
                 # that a later on reading coincided with its actual start.
                 self._saw_off = False
+                self._startup_started = self._low_start_deadline = self._deviation_low_deadline = None
                 self._low_since = None
                 self.alarm_active = False
                 self._deviation_epoch += 1
@@ -936,7 +999,8 @@ class EnergyMonitor:
             current_switch = self.hass.states.get(self.config.get("switch_entity"))
             current_power = self.power_w
             if (self._stopped or self._stopping or power_epoch != self._power_epoch or not current_switch or current_switch.state != "on"
-                    or current_power is None or current_power >= self._threshold() or self._low_since is None):
+                    or current_power is None or current_power >= self._threshold() or self._low_since is None
+                    or not self._low_start_open(self._low_start_deadline, dt_util.utcnow())):
                 self.alarm_active = False
                 break
             attr = f"_{channel}_sent"
@@ -977,6 +1041,7 @@ class EnergyMonitor:
                     or not switch or switch.state != "on" or self._deviation_since is None
                     or self._deviation_candidate != direction
                     or self._deviation_for_power(self.power_w) != direction
+                    or (direction == "low" and not self._low_start_open(self._deviation_low_deadline, dt_util.utcnow()))
                     or dt_util.utcnow() - self._deviation_since < timedelta(minutes=self._deviation_delay())):
                 self.deviation_alarm_active = False
                 break
