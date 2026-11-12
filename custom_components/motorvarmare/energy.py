@@ -20,6 +20,7 @@ _ENERGY_UNITS = {"mWh": 0.000001, "Wh": 0.001, "kWh": 1.0, "MWh": 1000.0}
 _HISTORY_LIMIT = 1000
 _POWER_GRAPH_LIMIT = 512
 _POWER_GRAPH_INTERVAL = timedelta(seconds=30)
+_STARTUP_ALERT_RETRY_SECONDS = 5 * 60
 _LEGACY_HISTORY_LIMIT = 100
 _TOTAL_LIMITS = {"daily": 366, "weekly": 104, "monthly": 36}
 
@@ -287,8 +288,12 @@ class EnergyMonitor:
     power timer, rather than proving that the load has been low throughout.
     """
 
-    def __init__(self, hass, entry, config, notify):
+    def __init__(self, hass, entry, config, notify, alerts_allowed=None):
         self.hass, self.entry, self.config, self._notify = hass, entry, config, notify
+        self._alerts_allowed = alerts_allowed or (lambda: True)
+        self._deferred_low_epoch = None
+        self._deferred_low_deviation = False
+        self._deferred_alert_retry_until = None
         self.store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.energy")
         self._lock = asyncio.Lock()
         self._unsub = None
@@ -696,6 +701,7 @@ class EnergyMonitor:
                 switch_event = entity == self.config.get("switch_entity")
                 new_state = event.data.get("new_state")
                 if switch_event and (new_state is None or new_state.state != "on"):
+                    self._deferred_low_deviation = False
                     self._power_epoch += 1
                     self._low_since = None
                     self.alarm_active = False
@@ -705,6 +711,8 @@ class EnergyMonitor:
                     self.deviation_alarm_active = False
                 if entity == self.config.get("power_entity"):
                     power = _read_number(new_state, _POWER_UNITS)
+                    if self._deviation_for_power(power) != "low":
+                        self._deferred_low_deviation = False
                     if power is None or power >= self._threshold():
                         # Reset synchronously, even while a notification task
                         # is waiting; later queued events cannot preserve a
@@ -766,6 +774,9 @@ class EnergyMonitor:
         # Unsubscribe first and drain observations already captured before
         # recording the final state. Suppress new alerts while unloading.
         self._stopping = True
+        self._deferred_low_epoch = None
+        self._deferred_low_deviation = False
+        self._deferred_alert_retry_until = None
         if self._unsub:
             self._unsub()
             self._unsub = None
@@ -878,6 +889,8 @@ class EnergyMonitor:
         async with self._lock:
             if self._stopped and not force:
                 return
+            if self._alerts_allowed() and (self._deferred_low_epoch is not None or self._deferred_low_deviation):
+                await self._flush_deferred_startup_alerts_locked()
             switch = snapshot.get("switch") if snapshot is not None else self.hass.states.get(self.config.get("switch_entity"))
             on = switch is not None and switch.state == "on"
             off = switch is not None and switch.state == "off"
@@ -1000,7 +1013,10 @@ class EnergyMonitor:
                         and current_low_snapshot and power is not None and power < self._threshold()):
                     if self._low_since is None:
                         self._low_since = observed or now
-                    self.alarm_active = now - self._low_since >= timedelta(minutes=self._delay())
+                    qualified = now - self._low_since >= timedelta(minutes=self._delay())
+                    if qualified and not self._alerts_allowed():
+                        self._deferred_low_epoch = self._power_epoch
+                    self.alarm_active = self._alerts_allowed() and qualified
                     if self.alarm_active:
                         await self._send_notifications(self._power_epoch)
                 else:
@@ -1021,7 +1037,10 @@ class EnergyMonitor:
                         # Never count an ambiguous backwards clock jump as
                         # uninterrupted abnormal power.
                         self._deviation_since = now
-                    self.deviation_alarm_active = now - self._deviation_since >= timedelta(minutes=self._deviation_delay())
+                    qualified = now - self._deviation_since >= timedelta(minutes=self._deviation_delay())
+                    if qualified and direction == "low" and not self._alerts_allowed():
+                        self._deferred_low_deviation = True
+                    self.deviation_alarm_active = self._alerts_allowed() and qualified
                     if self.deviation_alarm_active:
                         await self._send_deviation_notifications(self._deviation_epoch, direction)
             elif off:
@@ -1085,7 +1104,49 @@ class EnergyMonitor:
                 await self._save()
         self._notify()
 
-    async def _send_notifications(self, power_epoch):
+    async def _flush_deferred_startup_alerts(self):
+        """Send only startup-qualified faults that remain continuously low."""
+        async with self._lock:
+            await self._flush_deferred_startup_alerts_locked()
+
+    async def _flush_deferred_startup_alerts_locked(self):
+        if not self._alerts_allowed() or self._stopped or self._stopping:
+            return
+        if self._deferred_low_epoch is None and not self._deferred_low_deviation:
+            self._deferred_alert_retry_until = None
+            return
+        now = time.monotonic()
+        if self._deferred_alert_retry_until is None:
+            self._deferred_alert_retry_until = now + _STARTUP_ALERT_RETRY_SECONDS
+        elif now >= self._deferred_alert_retry_until:
+            self._deferred_low_epoch, self._deferred_low_deviation = None, False
+            self._deferred_alert_retry_until = None
+            return
+        switch = self.hass.states.get(self.config.get("switch_entity"))
+        is_on = switch is not None and switch.state == "on"
+        mobile = isinstance(self.config.get("notify_entity"), str) and self.config["notify_entity"].startswith("notify.")
+        if self._deferred_low_epoch is not None:
+            if (not is_on or self.power_w is None or self.power_w >= self._threshold()
+                    or not self.config.get("power_alarm_enabled", True)
+                    or self._deferred_low_epoch != self._power_epoch):
+                self._deferred_low_epoch = None
+            else:
+                await self._send_notifications(self._deferred_low_epoch, deferred_startup=True)
+                if self._persistent_sent and (not mobile or self._mobile_sent):
+                    self._deferred_low_epoch = None
+        if self._deferred_low_deviation:
+            if not is_on or self._deviation_for_power(self.power_w) != "low":
+                self._deferred_low_deviation = False
+            else:
+                await self._send_deviation_notifications(self._deviation_epoch, "low", deferred_startup=True)
+                if "low" in self._deviation_persistent_sent and (not mobile or "low" in self._deviation_mobile_sent):
+                    self._deferred_low_deviation = False
+        if self._deferred_low_epoch is None and not self._deferred_low_deviation:
+            self._deferred_alert_retry_until = None
+
+    async def _send_notifications(self, power_epoch, deferred_startup=False):
+        if not self._alerts_allowed():
+            return
         language = str(getattr(getattr(self.hass, "config", None), "language", "en") or "en").lower()
         if language.startswith("sv"):
             title = f"Motorvärmare: {self.entry.title}"
@@ -1100,9 +1161,12 @@ class EnergyMonitor:
         for channel, domain, service, data in targets:
             current_switch = self.hass.states.get(self.config.get("switch_entity"))
             current_power = self.power_w
+            if not self._alerts_allowed():
+                return
             if (self._stopped or self._stopping or power_epoch != self._power_epoch or not current_switch or current_switch.state != "on"
-                    or current_power is None or current_power >= self._threshold() or self._low_since is None
-                    or not self._low_start_open(self._low_start_deadline, dt_util.utcnow())):
+                    or current_power is None or current_power >= self._threshold()
+                    or (not deferred_startup and (self._low_since is None
+                        or not self._low_start_open(self._low_start_deadline, dt_util.utcnow())))):
                 self.alarm_active = False
                 break
             attr = f"_{channel}_sent"
@@ -1119,8 +1183,10 @@ class EnergyMonitor:
             except Exception:
                 _LOGGER.warning("Unable to send %s low-power notification for %s", channel, self.entry.title, exc_info=True)
 
-    async def _send_deviation_notifications(self, epoch, direction):
+    async def _send_deviation_notifications(self, epoch, direction, deferred_startup=False):
         """Notify each channel once per direction and observed switch-on run."""
+        if not self._alerts_allowed():
+            return
         language = str(getattr(getattr(self.hass, "config", None), "language", "en") or "en").lower()
         if language.startswith("sv"):
             title = f"Motorvärmare: {self.entry.title}"
@@ -1138,13 +1204,16 @@ class EnergyMonitor:
             targets.append(("mobile", "notify", "send_message", {
                 "entity_id": entity, "title": title, "message": message}))
         for channel, domain, service, data in targets:
+            if not self._alerts_allowed():
+                return
             switch = self.hass.states.get(self.config.get("switch_entity"))
             if (self._stopped or self._stopping or epoch != self._deviation_epoch
-                    or not switch or switch.state != "on" or self._deviation_since is None
-                    or self._deviation_candidate != direction
+                    or not switch or switch.state != "on"
+                    or (not deferred_startup and self._deviation_since is None)
+                    or (not deferred_startup and self._deviation_candidate != direction)
                     or self._deviation_for_power(self.power_w) != direction
-                    or (direction == "low" and not self._low_start_open(self._deviation_low_deadline, dt_util.utcnow()))
-                    or dt_util.utcnow() - self._deviation_since < timedelta(minutes=self._deviation_delay())):
+                    or (not deferred_startup and direction == "low" and not self._low_start_open(self._deviation_low_deadline, dt_util.utcnow()))
+                    or (not deferred_startup and dt_util.utcnow() - self._deviation_since < timedelta(minutes=self._deviation_delay()))):
                 self.deviation_alarm_active = False
                 break
             sent = getattr(self, f"_deviation_{channel}_sent")

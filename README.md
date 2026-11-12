@@ -34,6 +34,8 @@ The heating time follows [M Sverige's engine-focused recommendations based on Ca
 
 ## Optional power and energy monitoring
 
+Notifications from the integration are held for five minutes after startup or reload, giving Home Assistant and devices time to become available. Problems that are still present after the delay can trigger notifications; resolved startup problems are not sent later. This delay affects notifications only, not heating control or switch-off.
+
 While a session controlled by the integration is running, the companion card shows its start, planned stop and remaining time. **Extend 30 minutes** extends only the current session; it does not alter the calendar or the optional post-departure setting. Repeated extensions are limited to four hours of continuous heating from the session's start. The new stop is saved across a Home Assistant restart, and the normal stop and temperature rules still apply. If less than 30 minutes remain before the limit, the extension is capped at that limit.
 
 When a power sensor is configured, the active card can show a graph of recent power observations in watts, estimated energy in kWh and, when available, estimated cost. After a controlled restart, a resumed heating period can begin a new measurement period; its start is shown so partial measurements are not mistaken for a whole-session total. Missing measurements and restarts can leave gaps or make estimates unavailable; the graph and cost are not a billing meter. A power sensor is optional, and the timeline and extension remain available without one.

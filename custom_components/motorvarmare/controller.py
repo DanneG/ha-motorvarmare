@@ -28,6 +28,12 @@ _LOGGER = logging.getLogger(__name__)
 _MAX_RUNTIME = timedelta(hours=4)
 _CALENDAR_INTERVAL = 300
 _CALENDAR_RETRY_INTERVAL = 30
+_STARTUP_ALERT_GRACE_SECONDS = 5 * 60
+
+
+def _alert_clock():
+    """Measure startup grace independently of changes to the wall clock."""
+    return monotonic_time.monotonic()
 
 
 def duration_for_temperature(temp: float) -> int:
@@ -114,7 +120,32 @@ class HeaterController:
         self._calendar_error = None
         self._lock = asyncio.Lock()
         self._unsub = None
-        self.energy = EnergyMonitor(hass, entry, self.config, self._notify)
+        # A monotonic deadline is unaffected by wall-clock or timezone changes.
+        # Until async_start, retain the old behavior for isolated callers.
+        self._alerts_after = None
+        self._alert_grace_timer = None
+        self._alerts_closed = False
+        self.energy = EnergyMonitor(hass, entry, self.config, self._notify, self._alerts_allowed)
+
+    def _alerts_allowed(self):
+        return not self._alerts_closed and (self._alerts_after is None or _alert_clock() >= self._alerts_after)
+
+    @callback
+    def _recheck_alerts_after_startup(self):
+        """Re-evaluate current faults once startup has had time to settle."""
+        self._alert_grace_timer = None
+        if self._alerts_closed or self._alerts_after is None:
+            return
+        remaining = self._alerts_after - _alert_clock()
+        if remaining > 0:
+            self._alert_grace_timer = asyncio.get_running_loop().call_later(remaining, self._recheck_alerts_after_startup)
+            return
+        # Recheck the external calendar before deciding whether its fault is
+        # still present, and flush startup-only alerts separately so a slow
+        # calendar does not delay those checks or the heater's safety logic.
+        self._calendar_checked = float("-inf")
+        self.hass.async_create_task(self.energy._flush_deferred_startup_alerts())
+        self.hass.async_create_task(self.async_update())
 
     def _notify(self):
         async_dispatcher_send(self.hass, f"{DOMAIN}_{self.entry.entry_id}")
@@ -617,6 +648,12 @@ class HeaterController:
             self._notify()
 
     async def async_start(self):
+        self._alerts_closed = False
+        self._alerts_after = _alert_clock() + _STARTUP_ALERT_GRACE_SECONDS
+        if self._alert_grace_timer:
+            self._alert_grace_timer.cancel()
+        self._alert_grace_timer = asyncio.get_running_loop().call_later(
+            _STARTUP_ALERT_GRACE_SECONDS, self._recheck_alerts_after_startup)
         self._unsub = async_track_time_interval(self.hass, self._tick, timedelta(minutes=1))
         try:
             await self.energy.async_start()
@@ -630,6 +667,7 @@ class HeaterController:
 
     async def async_shutdown(self):
         async with self._lock:
+            self._alerts_closed = True
             now = dt_util.utcnow()
             if (self.owned and not self._stop_requested and not self._temperature_blocked
                     and (not self.automation_paused or self._active_source == "Starta nu")
@@ -652,6 +690,7 @@ class HeaterController:
                     self._active_departure, self._active_source, self._started_at)
                 await self._save()
             if self.owned and not await self._turn_off():
+                self._alerts_closed = False
                 self.error = "Kunde inte stänga av brytaren"
                 self._notify()
                 self._schedule_operational_alerts()
@@ -659,6 +698,10 @@ class HeaterController:
             if self._unsub:
                 self._unsub()
                 self._unsub = None
+            if self._alert_grace_timer:
+                self._alert_grace_timer.cancel()
+                self._alert_grace_timer = None
+            self._alerts_after = None
             try:
                 await self.energy.async_shutdown()
             except Exception:
@@ -1035,6 +1078,8 @@ class HeaterController:
         problems = self._operational_problems()
         self._operational_active = problems
         self._operational_sent = {item for item in self._operational_sent if item[0] in problems}
+        if not self._alerts_allowed():
+            return
         language = str(getattr(getattr(self.hass, "config", None), "language", "en") or "en").lower()
         sv = language.startswith("sv")
         messages = {
@@ -1055,7 +1100,8 @@ class HeaterController:
                 targets.append(("mobile", "notify", "send_message", {"entity_id": notify_entity, "title": title, "message": message}))
             for channel, domain, service, data in targets:
                 token = (problem, channel)
-                if token in self._operational_sent or token in self._operational_pending or problem not in self._operational_active:
+                if (not self._alerts_allowed() or token in self._operational_sent
+                        or token in self._operational_pending or problem not in self._operational_active):
                     continue
                 self._operational_pending.add(token)
                 try:

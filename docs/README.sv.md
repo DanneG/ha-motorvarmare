@@ -34,6 +34,8 @@ Gångtiden utgår från [M Sveriges rekommendationer för motorns bästa enligt 
 
 ## Valfri effekt- och energiövervakning
 
+Integrationens notiser avvaktar fem minuter efter uppstart eller omladdning så att Home Assistant och enheterna hinner bli tillgängliga. Problem som fortfarande finns efter väntetiden kan utlösa notiser; uppstartsproblem som har löst sig skickas inte i efterhand. Fördröjningen gäller bara notiser, inte styrning eller avstängning av värmaren.
+
 När integrationen styr en pågående värmning visar kortet start, planerat stopp och återstående tid. **Förläng 30 minuter** förlänger bara den pågående körningen; kalendern och inställningen för eftervärmning ändras inte. Flera tryck begränsas till fyra timmars sammanhängande värmning från körningens start. Den nya stopptiden sparas vid omstart av Home Assistant och de vanliga reglerna för stopp och temperatur gäller fortfarande. Om mindre än 30 minuter återstår till maxgränsen begränsas förlängningen till den tiden.
 
 Med en vald effektsensor kan kortet visa en graf över effektvärden i watt, uppskattad energi i kWh och uppskattad kostnad när den är tillgänglig. Efter en kontrollerad omstart kan en återupptagen värmning få en ny mätperiod; kortet visar mätperiodens start så att en delmätning inte förväxlas med hela körningen. Saknade mätvärden och omstart kan ge luckor i grafen eller göra uppskattningar otillgängliga; grafen och kostnaden är inte en elmätare för debitering. Effektsensorn är valfri och tidslinjen och förlängningen fungerar även utan den.
