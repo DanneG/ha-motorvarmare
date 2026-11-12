@@ -247,7 +247,7 @@ class HeaterStatus(SensorEntity):
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = list(_STATUS_KEYS.values())
     _attr_icon = "mdi:car-defrost-front"
-    _unrecorded_attributes = (getattr(SensorEntity, "_unrecorded_attributes", None) or frozenset()) | frozenset({"heating_history", "history_energy_totals"})
+    _unrecorded_attributes = (getattr(SensorEntity, "_unrecorded_attributes", None) or frozenset()) | frozenset({"heating_history", "history_energy_totals", "active_power_samples"})
 
     def __init__(self, entry: ConfigEntry, controller) -> None:
         """Bind the sensor to its car."""
@@ -290,6 +290,9 @@ class HeaterStatus(SensorEntity):
             "error": controller.error,
             "owned": controller.owned,
             "active_until": controller.active_until,
+            "active_started_at": getattr(controller, "_started_at", None) if controller.owned else None,
+            "active_max_until": (controller._started_at + timedelta(hours=4)) if controller.owned and getattr(controller, "_started_at", None) else None,
+            "can_extend": getattr(controller, "can_extend", False),
             "automation_paused": getattr(controller, "automation_paused", False),
             "pause_until": getattr(controller, "pause_until", None),
             "skipped_departure": getattr(controller, "skipped_departure", None),
@@ -301,6 +304,10 @@ class HeaterStatus(SensorEntity):
             "cost_configured": energy.cost_configured if energy else False,
             "energy_sensor_available": energy.energy_sensor_available if energy else False,
             "power_w": energy.power_w if energy else None,
+            "active_power_samples": getattr(energy, "active_power_samples", []) if energy else [],
+            "active_measurement_started_at": getattr(energy, "active_measurement_started_at", None) if energy else None,
+            "active_session_cost": getattr(energy, "active_session_cost", None) if energy else None,
+            "active_session_currency": getattr(energy, "active_session_currency", None) if energy else None,
             "session_energy_kwh": energy.session_energy_kwh if energy else None,
             "energy_session_status": energy.energy_session_status if energy else "disabled",
             "energy_monitor_status": energy.monitor_status if energy else "disabled",
@@ -323,6 +330,7 @@ class HeaterStatus(SensorEntity):
                 "clear_departure": entity_id("button", "clear_departure"),
                 "start_now": entity_id("button", "start_now"),
                 "stop_now": entity_id("button", "stop_now"),
+                "extend_30": entity_id("button", "extend_30"),
                 "skip_next": entity_id("button", "skip_next"),
                 "automation_paused": entity_id("switch", "automation_paused"),
                 "pause_until": entity_id("datetime", "pause_until"),

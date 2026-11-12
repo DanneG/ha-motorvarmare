@@ -18,6 +18,8 @@ _LOGGER = logging.getLogger(__name__)
 _POWER_UNITS = {"mW": 0.001, "W": 1.0, "kW": 1000.0, "MW": 1000000.0}
 _ENERGY_UNITS = {"mWh": 0.000001, "Wh": 0.001, "kWh": 1.0, "MWh": 1000.0}
 _HISTORY_LIMIT = 1000
+_POWER_GRAPH_LIMIT = 512
+_POWER_GRAPH_INTERVAL = timedelta(seconds=30)
 _LEGACY_HISTORY_LIMIT = 100
 _TOTAL_LIMITS = {"daily": 366, "weekly": 104, "monthly": 36}
 
@@ -302,6 +304,9 @@ class EnergyMonitor:
         self._last_power = None
         self._last_power_at = None
         self._session_cost = None
+        # The current session's bounded display samples are independent of
+        # energy integration. A null sample explicitly breaks the graph.
+        self._active_power_samples = []
         self._last_price = None
         self._cost_invalid = False
         self._invalid = False
@@ -411,6 +416,74 @@ class EnergyMonitor:
         return round(self._session_energy, 4) if self._session_energy is not None and not self._invalid else None
 
     @property
+    def active_power_samples(self):
+        """Power observations in this run; null means an unknown interval."""
+        if not self._session_active or not self.power_configured:
+            return []
+        return [dict(item) for item in self._active_power_samples]
+
+    @property
+    def active_measurement_started_at(self):
+        """Observed switch-session start for the reported energy and cost.
+
+        A clean integration reload may stop and resume the same scheduled
+        heater run. Energy after that restart belongs to a new measurement
+        session and must not appear to cover the earlier heater run. If the
+        switch start was not observed, we cannot state a measurement start.
+        """
+        if not self._session_active or not self._history_time_complete:
+            return None
+        return self._history_start if self._history_datetime(self._history_start) else None
+
+    @property
+    def active_session_cost(self):
+        """Estimate only where the session's full energy and price are known."""
+        if not self._session_active or not self.cost_configured:
+            return None
+        energy = self.session_energy_kwh
+        if energy is None:
+            return None
+        if self.config.get("energy_price_entity"):
+            # A price integral is available only for a power-based session.
+            # An end-price estimate cannot price a live variable-price run.
+            value = self._session_cost if self._integrate_power and not self._cost_invalid else None
+        else:
+            price = _finite_number(self.config.get("energy_price"))
+            value = energy * price if price is not None else None
+        return round(value, 4) if isinstance(value, (int, float)) and math.isfinite(value) else None
+
+    @property
+    def active_session_currency(self):
+        return _currency(self.config.get("energy_currency", "SEK")) if self.active_session_cost is not None else None
+
+    def _append_power_sample(self, observed_at, power, *, force=False):
+        """Append a bounded, downsampled observation without bridging gaps."""
+        if not self.power_configured:
+            return False
+        instant = self._history_datetime(observed_at)
+        if instant is None:
+            return False
+        if not isinstance(power, (int, float)) or isinstance(power, bool) or not math.isfinite(power) or power < 0:
+            power = None
+        else:
+            power = round(power, 2)
+        if self._active_power_samples:
+            previous = self._active_power_samples[-1]
+            previous_at = self._history_datetime(previous["at"])
+            if previous_at and instant < previous_at:
+                # A backwards timestamp cannot be placed reliably on this axis.
+                # Drop its old points instead of drawing a misleading line.
+                self._active_power_samples = []
+            elif previous_at:
+                if previous["watts"] is None and power is None:
+                    return False
+                if not force and power is not None and previous["watts"] is not None and instant - previous_at < _POWER_GRAPH_INTERVAL:
+                    return False
+        self._active_power_samples.append({"at": instant.isoformat(), "watts": power})
+        self._active_power_samples = self._active_power_samples[-_POWER_GRAPH_LIMIT:]
+        return True
+
+    @property
     def energy_session_status(self):
         if not self.energy_configured:
             return "disabled"
@@ -499,6 +572,7 @@ class EnergyMonitor:
             "baseline": self._baseline,
             "last_meter": self._last_meter,
             "session_energy": self._session_energy,
+            "active_power_samples": self._active_power_samples[-_POWER_GRAPH_LIMIT:],
             "invalid": self._invalid,
             "persistent_sent": self._persistent_sent,
             "mobile_sent": self._mobile_sent,
@@ -547,6 +621,22 @@ class EnergyMonitor:
         self._history_time_complete = False
         self._switch_changed = data.get("switch_changed")
         if data.get("power_entity") == self.config.get("power_entity"):
+            samples = data.get("active_power_samples", [])
+            if self._session_active and self.power_configured and isinstance(samples, list):
+                # Validate persisted data and keep only ascending timestamps.
+                for item in samples[-_POWER_GRAPH_LIMIT:]:
+                    if not isinstance(item, dict) or "watts" not in item:
+                        continue
+                    value = item["watts"]
+                    if value is not None and (not isinstance(value, (int, float)) or isinstance(value, bool)
+                                              or not math.isfinite(value) or value < 0):
+                        continue
+                    instant = self._history_datetime(item.get("at"))
+                    if not instant:
+                        continue
+                    if self._active_power_samples and instant < self._history_datetime(self._active_power_samples[-1]["at"]):
+                        continue
+                    self._append_power_sample(instant.isoformat(), value, force=True)
             self._persistent_sent = bool(data.get("persistent_sent"))
             values = data.get("deviation_persistent_sent", [])
             self._deviation_persistent_sent = {v for v in values if isinstance(v, str) and v in ("low", "high")} if isinstance(values, list) else set()
@@ -801,12 +891,20 @@ class EnergyMonitor:
             price = _read_price(price_state, self.config.get("energy_currency", "SEK")) if self.config.get("energy_price_entity") else None
             changed = False
             if on:
+                if self._restored_session and self._active_power_samples:
+                    # Nothing during Home Assistant downtime is observed. End
+                    # the prior line at its last known sample before resuming.
+                    changed |= self._append_power_sample(self._active_power_samples[-1]["at"], None, force=True)
                 changed_at = self._changed_at(switch)
                 # A changed last_changed timestamp can reveal an off/on cycle
                 # while HA was unavailable; do not reuse an old baseline.
                 new_session = not self._session_active or (changed_at and self._switch_changed and changed_at != self._switch_changed)
                 if new_session:
                     was_active = self._session_active
+                    if not was_active:
+                        self._active_power_samples = []
+                    elif self._active_power_samples and not self._restored_session:
+                        changed |= self._append_power_sample(observed_at, None, force=True)
                     saw_off_before = self._saw_off
                     observed = self._history_datetime(observed_at)
                     # Only a genuinely observed off->on starts low-power
@@ -865,6 +963,7 @@ class EnergyMonitor:
                         # keep one uncertain record rather than inventing two.
                         self._history_time_complete = False
                     changed = True
+                changed |= self._append_power_sample(observed_at, power)
                 if self._integrate_power and not new_session and not self._invalid:
                     self._integrate_power_until(observed_at, power, price)
                     changed = True
@@ -948,6 +1047,7 @@ class EnergyMonitor:
                     self._finish_history(end, snapshot.get("price") if snapshot is not None else None,
                                          has_price_snapshot=snapshot is not None and "price" in snapshot)
                     self._session_active = False
+                    self._active_power_samples = []
                     changed = True
                 self._low_since = None
                 self.alarm_active = False
@@ -955,6 +1055,8 @@ class EnergyMonitor:
                 self._deviation_candidate = self._deviation_since = None
                 self.deviation_alarm_active = False
             else:
+                if self._session_active:
+                    changed |= self._append_power_sample(observed_at, None)
                 # A disconnected switch is not evidence of either an off
                 # transition or continuously low power. It may have changed
                 # state while unavailable, so the whole energy session can no

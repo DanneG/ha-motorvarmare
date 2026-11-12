@@ -147,6 +147,9 @@
       "stop_now": {
         "name": "Stoppa"
       },
+      "extend_30": {
+        "name": "Förläng värmning 30 minuter"
+      },
       "skip_next": {
         "name": "Hoppa över nästa avresa"
       }
@@ -263,6 +266,9 @@
     },
     "not_owned": {
       "message": "Integrationen styr ingen pågående uppvärmning."
+    },
+    "cannot_extend": {
+      "message": "Den pågående värmningen kan inte förlängas. Kontrollera status och maxgräns."
     },
     "turn_off_failed": {
       "message": "Kunde inte stänga av brytaren; försöker igen."

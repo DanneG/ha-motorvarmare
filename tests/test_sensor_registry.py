@@ -52,6 +52,7 @@ class SensorRegistryTests(unittest.TestCase):
         reg.mapping[('button', 'motorvarmare', 'car1_clear_departure')] = 'button.clear_renamed'
         reg.mapping[('button', 'motorvarmare', 'car1_start_now')] = 'button.start_renamed'
         reg.mapping[('button', 'motorvarmare', 'car1_stop_now')] = 'button.stop_renamed'
+        reg.mapping[('button', 'motorvarmare', 'car1_extend_30')] = 'button.extend_renamed'
         reg.mapping[('button', 'motorvarmare', 'car1_skip_next')] = 'button.skip_renamed'
         reg.mapping[('switch', 'motorvarmare', 'car1_automation_paused')] = 'switch.pause_renamed'
         reg.mapping[('datetime', 'motorvarmare', 'car1_pause_until')] = 'datetime.pause_renamed'
@@ -86,6 +87,7 @@ class SensorRegistryTests(unittest.TestCase):
         self.assertEqual(controls['clear_departure'], 'button.clear_renamed')
         self.assertEqual(controls['start_now'], 'button.start_renamed')
         self.assertEqual(controls['stop_now'], 'button.stop_renamed')
+        self.assertEqual(controls['extend_30'], 'button.extend_renamed')
         self.assertEqual(controls['skip_next'], 'button.skip_renamed')
         self.assertEqual(controls['automation_paused'], 'switch.pause_renamed')
         self.assertEqual(controls['pause_until'], 'datetime.pause_renamed')
@@ -100,6 +102,35 @@ class SensorRegistryTests(unittest.TestCase):
         bus.listener[1](None)
         self.assertEqual(item.writes, 1)
         self.assertEqual(item.extra_state_attributes['control_entities']['weekly_times'][0], 'time.renamed_again')
+
+    def test_active_measurement_start_and_graph_fields_are_exposed(self):
+        from datetime import datetime, timedelta, timezone
+        start = datetime(2026, 11, 12, 6, 0, tzinfo=timezone.utc)
+        samples = [{'at': start.isoformat(), 'watts': 750.0}]
+        energy = types.SimpleNamespace(
+            power_configured=True, energy_configured=True, cost_configured=True,
+            energy_sensor_available=True, power_w=750.0, session_energy_kwh=0.25,
+            energy_session_status='measuring', monitor_status='ok', alarm_active=False,
+            active_power_samples=samples, active_measurement_started_at=start.isoformat(),
+            active_session_cost=0.5, active_session_currency='SEK', heating_history=[],
+            history_energy_totals=None,
+        )
+        c = types.SimpleNamespace(next_departure=None, planned_start=None, temperature=0,
+            duration_minutes=60, source=None, error=None, owned=True, _started_at=start,
+            _temperature_blocked=False, post_departure_minutes=0, can_extend=True,
+            active_until=start+timedelta(hours=1), schedule_7_days=[], status='Värmer',
+            config={'switch_entity':'switch.heater'}, energy=energy)
+        item = sensor.HeaterStatus(types.SimpleNamespace(entry_id='car1',title='Bil 1'), c)
+        item.hass = types.SimpleNamespace(registry=Registry())
+        attrs = item.extra_state_attributes
+        self.assertEqual(attrs['active_started_at'], start)
+        self.assertEqual(attrs['active_max_until'], start+timedelta(hours=4))
+        self.assertTrue(attrs['can_extend'])
+        self.assertEqual(attrs['active_measurement_started_at'], start.isoformat())
+        self.assertEqual(attrs['active_power_samples'], samples)
+        self.assertEqual(attrs['active_session_cost'], 0.5)
+        self.assertEqual(attrs['active_session_currency'], 'SEK')
+        self.assertIn('active_power_samples', item._unrecorded_attributes)
 
 
 if __name__ == '__main__':

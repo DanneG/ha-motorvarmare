@@ -147,6 +147,9 @@
       "stop_now": {
         "name": "Stop"
       },
+      "extend_30": {
+        "name": "Extend heating by 30 minutes"
+      },
       "skip_next": {
         "name": "Skip next departure"
       }
@@ -263,6 +266,9 @@
     },
     "not_owned": {
       "message": "The integration is not controlling an active heating session."
+    },
+    "cannot_extend": {
+      "message": "The current session cannot be extended. Check its status and maximum runtime."
     },
     "turn_off_failed": {
       "message": "Could not turn off the switch; retrying."

@@ -101,6 +101,9 @@ class HeaterController:
         self._uncertain_start_until = None
         self._active_departure = self._started_at = None
         self._active_source = None
+        self._extended_until = None
+        self._resume_extended_until = None
+        self._resume_switch = None
         self._resume_departure = self._resume_source = self._resume_started_at = None
         self._suppressed = set()
         self._suppression_until = None
@@ -185,6 +188,9 @@ class HeaterController:
         self._active_departure = self._parse(data.get("active_departure"))
         self._started_at = self._parse(data.get("started_at"))
         self._active_source = data.get("active_source")
+        self._extended_until = self._parse(data.get("extended_until"))
+        self._resume_extended_until = self._parse(data.get("resume_extended_until"))
+        self._resume_switch = data.get("resume_switch")
         self._resume_departure = self._parse(data.get("resume_departure"))
         self._resume_source = data.get("resume_source")
         self._resume_started_at = self._parse(data.get("resume_started_at"))
@@ -233,6 +239,9 @@ class HeaterController:
             "active_departure": iso(self._active_departure),
             "started_at": iso(self._started_at),
             "active_source": self._active_source,
+            "extended_until": iso(self._extended_until),
+            "resume_extended_until": iso(self._resume_extended_until),
+            "resume_switch": self._resume_switch,
             "resume_departure": iso(self._resume_departure),
             "resume_source": self._resume_source,
             "resume_started_at": iso(self._resume_started_at),
@@ -265,6 +274,7 @@ class HeaterController:
             if self.owned and self._active_source != "Starta nu" and self._active_departure == moment:
                 self._stop_requested = True
                 self._resume_departure = self._resume_source = self._resume_started_at = None
+                self._resume_extended_until = self._resume_switch = None
             await self._save()
         await self.async_update()
 
@@ -286,6 +296,7 @@ class HeaterController:
                 self.pause_until = None
             if value:
                 self._resume_departure = self._resume_source = self._resume_started_at = None
+                self._resume_extended_until = self._resume_switch = None
                 if self.owned and self._active_source != "Starta nu":
                     self._stop_requested = True
             await self._save()
@@ -458,7 +469,39 @@ class HeaterController:
     @property
     def active_until(self):
         """When an owned heating session should end, including Starta nu."""
-        return self._heating_end(self._active_departure, self._active_source) if self.owned else None
+        if not self.owned:
+            return None
+        end = self._heating_end(self._active_departure, self._active_source)
+        if end is None or self._started_at is None:
+            return end
+        if self._extended_until:
+            end = max(end, self._extended_until)
+        return min(end, self._started_at + _MAX_RUNTIME)
+
+    @property
+    def can_extend(self):
+        """Allow extension only for a confirmed, currently running owned session."""
+        now = dt_util.utcnow()
+        state = self.hass.states.get(self.config[CONF_SWITCH])
+        temp = self._temperature()
+        return bool(self.owned and not self._stop_requested and not self._temperature_blocked
+                    and state and state.state == STATE_ON and temp is not None and temp <= 10
+                    and self._started_at and self.active_until and now < self.active_until
+                    and self.active_until < self._started_at + _MAX_RUNTIME)
+
+    async def async_extend_30(self):
+        """Extend this run by up to 30 minutes without changing a departure."""
+        async with self._lock:
+            if not self.can_extend:
+                raise ValueError("cannot_extend")
+            previous = self._extended_until
+            self._extended_until = min(self.active_until + timedelta(minutes=30), self._started_at + _MAX_RUNTIME)
+            try:
+                await self._save()
+            except BaseException:
+                self._extended_until = previous
+                raise
+            self._notify()
 
     @property
     def post_departure_minutes(self):
@@ -485,6 +528,7 @@ class HeaterController:
                 raise ValueError("zero_runtime")
             now = dt_util.utcnow()
             self._resume_departure = self._resume_source = self._resume_started_at = None
+            self._extended_until = self._resume_extended_until = self._resume_switch = None
             self.owned = True
             self._stop_requested = False
             self._active_departure = now + timedelta(minutes=duration)
@@ -509,8 +553,9 @@ class HeaterController:
     def _suppress_current_run(self, now, candidates):
         """Keep an explicit stop effective across connected heating windows."""
         self._resume_departure = self._resume_source = self._resume_started_at = None
+        self._resume_extended_until = self._resume_switch = None
         self._suppression_exempt.clear()
-        self._suppression_until = max(now, self._heating_end(self._active_departure, self._active_source) or now)
+        self._suppression_until = max(now, self.active_until or now)
         if self._active_source and self._active_source != "Starta nu" and self._active_departure:
             self._suppressed.add(f"{self._active_source}|{self._active_departure.isoformat()}")
         self._reconcile_suppression(now, candidates)
@@ -586,7 +631,19 @@ class HeaterController:
     async def async_shutdown(self):
         async with self._lock:
             now = dt_util.utcnow()
-            if (self.owned and not self._stop_requested and not self.automation_paused and not self._temperature_blocked
+            if (self.owned and not self._stop_requested and not self._temperature_blocked
+                    and (not self.automation_paused or self._active_source == "Starta nu")
+                    and self._extended_until and self.active_until and self.active_until > now
+                    and self._active_departure and self._active_source and self._started_at
+                    and now < self._started_at + _MAX_RUNTIME):
+                self._resume_departure, self._resume_source, self._resume_started_at = (
+                    self._active_departure, self._active_source, self._started_at)
+                # A later overlapping departure can extend the natural end
+                # past the explicit extension; retain the actual planned end.
+                self._resume_extended_until = self.active_until
+                self._resume_switch = self.config[CONF_SWITCH]
+                await self._save()
+            elif (self.owned and not self._stop_requested and not self.automation_paused and not self._temperature_blocked
                     and self.post_departure_minutes and self._active_source != "Starta nu"
                     and self._active_departure and self._started_at
                     and self._active_departure <= now < self._heating_end(self._active_departure, self._active_source)
@@ -643,6 +700,7 @@ class HeaterController:
         self._stop_requested = False
         self._active_departure = self._started_at = None
         self._active_source = None
+        self._extended_until = None
         await self._save()
         return True
 
@@ -772,7 +830,7 @@ class HeaterController:
         for departure, source in self._candidates(now, include_recent=True):
             key = f"{source}|{departure.isoformat()}"
             if (departure > self._active_departure and self._heating_end(departure, source) > now and key not in self._suppressed
-                    and departure - timedelta(minutes=minutes) <= min(now, self._heating_end(self._active_departure, self._active_source))):
+                    and departure - timedelta(minutes=minutes) <= min(now, self.active_until)):
                 self._active_departure, self._active_source = departure, source
                 changed = True
         return changed
@@ -1052,6 +1110,7 @@ class HeaterController:
             self._temperature_blocked = True
             self._stop_requested = True
             self._resume_departure = self._resume_source = self._resume_started_at = None
+            self._resume_extended_until = self._resume_switch = None
             try:
                 # Record the pending stop before yielding to the switch, so
                 # an interruption during the service call resumes shutdown.
@@ -1065,6 +1124,40 @@ class HeaterController:
                 return
         await self._read_calendar(now)
         now = dt_util.utcnow()
+        # On a clean unload, the plug was switched off deliberately. Restore
+        # an explicitly extended session only on the same configured plug.
+        if self._resume_extended_until:
+            resume_end = min(self._resume_extended_until, self._resume_started_at + _MAX_RUNTIME) if self._resume_started_at else None
+            if (self._resume_switch != self.config[CONF_SWITCH] or not self._resume_departure
+                    or not self._resume_source or not resume_end or now >= resume_end):
+                self._resume_departure = self._resume_source = self._resume_started_at = None
+                self._resume_extended_until = self._resume_switch = None
+                await self._save()
+            else:
+                state = self.hass.states.get(self.config[CONF_SWITCH])
+                temp = self._temperature()
+                scheduled_valid = (self._resume_source == "Starta nu" or self._resume_departure <= now or
+                                   (self._resume_departure, self._resume_source) in self._candidates(now, include_recent=True))
+                if ((state and state.state == STATE_ON) or (temp is not None and temp > 10)
+                        or (not scheduled_valid and (self._resume_source != "Kalender" or self._calendar_ok))):
+                    self._resume_departure = self._resume_source = self._resume_started_at = None
+                    self._resume_extended_until = self._resume_switch = None
+                    await self._save()
+                    scheduled_valid = False
+                if (not self.owned and not self._stop_requested and not self._temperature_blocked
+                        and (not self.automation_paused or self._resume_source == "Starta nu")
+                        and state and state.state == STATE_OFF and temp is not None and temp <= 10 and scheduled_valid):
+                    self.owned = True
+                    self._active_departure, self._active_source, self._started_at = (
+                        self._resume_departure, self._resume_source, self._resume_started_at)
+                    self._extended_until = self._resume_extended_until
+                    self._resume_departure = self._resume_source = self._resume_started_at = None
+                    self._resume_extended_until = self._resume_switch = None
+                    await self._save()
+                    if not await self._turn_on_confirmed():
+                        await self._abort_unconfirmed_start()
+                        self.status, self.error = "Fel", "Kunde inte slå på brytaren; försöker stänga av"
+                        return
         candidates = self._candidates(now)
         if self._reconcile_suppression(now, candidates):
             await self._save()
@@ -1080,6 +1173,11 @@ class HeaterController:
             if (self._active_source == "Planerad" and self._active_departure and self._active_departure <= now
                     and not self.local_events_between(self._active_departure, self._active_departure + timedelta(microseconds=1))):
                 removed = True
+            # Expired calendar events are routinely pruned, but an explicitly
+            # extended run remains valid until its chosen stop time.
+            if (removed and self._active_departure and self._active_departure <= now
+                    and self._extended_until and now < self._extended_until):
+                removed = False
             if expired or removed:
                 if not await self._turn_off():
                     self.status, self.error = "Fel", "Kunde inte stänga av brytaren; försöker igen"
@@ -1090,6 +1188,7 @@ class HeaterController:
                 self.owned = False
                 self._stop_requested = False
                 self._active_departure = self._started_at = self._active_source = None
+                self._extended_until = None
                 await self._save()
 
         self.temperature = self._temperature()
@@ -1135,6 +1234,7 @@ class HeaterController:
             resumed = (self.next_departure == self._resume_departure and self.source == self._resume_source)
             self._active_departure, self._active_source = self.next_departure, self.source
             self._started_at = self._resume_started_at if resumed else now
+            self._extended_until = None
             self._resume_departure = self._resume_source = self._resume_started_at = None
             await self._save()
             try:

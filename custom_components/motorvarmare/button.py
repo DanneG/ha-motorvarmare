@@ -13,6 +13,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
         ClearDepartureButton(controller, entry),
         StartNowButton(controller, entry),
         StopNowButton(controller, entry),
+        Extend30Button(controller, entry),
         SkipNextButton(controller, entry),
     ])
 
@@ -65,6 +66,24 @@ class StopNowButton(ButtonEntity):
     async def async_press(self):
         try:
             await self._controller.async_stop_now()
+        except ValueError as err:
+            raise ServiceValidationError(translation_domain=DOMAIN, translation_key=str(err)) from err
+
+
+class Extend30Button(ButtonEntity):
+    """Extend a currently owned heating session."""
+    _attr_has_entity_name = True
+    _attr_translation_key = "extend_30"
+    _attr_icon = "mdi:timer-plus-outline"
+
+    def __init__(self, controller, entry):
+        self._controller = controller
+        self._attr_unique_id = f"{entry.entry_id}_extend_30"
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, entry.entry_id)}, name=entry.title)
+
+    async def async_press(self):
+        try:
+            await self._controller.async_extend_30()
         except ValueError as err:
             raise ServiceValidationError(translation_domain=DOMAIN, translation_key=str(err)) from err
 
