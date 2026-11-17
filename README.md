@@ -4,6 +4,8 @@ English · [Svenska](docs/README.sv.md)
 
 Schedule an electric engine heater using the outdoor temperature and a departure time. Each car has its own Home Assistant-compatible smart plug or switch and departure schedule. Configuration, entities and the companion dashboard card support English and Swedish.
 
+![Motorvärmare dashboard card with an active heating session and calendar, shown with fictional example data](docs/demo-card-en.png)
+
 ## Installation
 
 Add `https://github.com/DanneG/ha-motorvarmare` as a custom repository in Marketplace or HACS with category **Integration**, then install it. Restart Home Assistant after updating. Under **Settings → Devices & services**, add **Motorvärmare** once for each car. Select the car's switch and an outdoor temperature sensor in °C or °F. A Google calendar is optional.
