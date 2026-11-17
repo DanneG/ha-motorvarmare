@@ -7,12 +7,14 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN
 from .controller import HeaterController
 
 PLATFORMS = [Platform.DATETIME, Platform.SENSOR, Platform.BUTTON, Platform.TIME, Platform.SWITCH, Platform.CALENDAR]
 _LOGGER = logging.getLogger(__name__)
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:

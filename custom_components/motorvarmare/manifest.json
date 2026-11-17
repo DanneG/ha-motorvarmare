@@ -1,10 +1,10 @@
 {
   "domain": "motorvarmare",
   "name": "Motorvärmare",
+  "after_dependencies": ["http", "lovelace"],
   "codeowners": [
     "@DanneG"
   ],
-  "after_dependencies": ["http", "lovelace"],
   "config_flow": true,
   "documentation": "https://github.com/DanneG/ha-motorvarmare",
   "integration_type": "service",
