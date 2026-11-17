@@ -8,9 +8,29 @@ Motorvärmare planerar en elektrisk motorvärmare utifrån en utetemperatursenso
 
 Lägg till `https://github.com/DanneG/ha-motorvarmare` som eget förråd i Marketplace eller HACS med kategorin **Integration** och installera det. Starta om Home Assistant vid uppdatering. Lägg sedan till **Motorvärmare** under **Inställningar → Enheter och tjänster** en gång per bil. Välj bilens brytare och en utetemperatursensor i °C eller °F. En Google-kalender kan väljas separat.
 
-Installera också det separata [Motorvärmare-kortet](https://github.com/DanneG/ha-motorvarmare-card) som förråd med kategorin **Dashboard**. Lägg till kortet på en kontrollpanel och välj bilens statusentitet. Följ kortets installationsanvisningar.
+Kortet ingår i integrationen. När Home Assistant hanterar kontrollpanelens resurser registrerar integrationen kortet automatiskt vid uppstart. När integrationen är konfigurerad, ladda om webbläsaren eller Home Assistant-appen, lägg till **Motorvärmare** på en kontrollpanel och välj bilens statusentitet. Lägg till ett kort per bil eller använd **Motorvärmare – översikt** för att se flera bilar tillsammans.
 
-För manuell installation: kopiera `custom_components/motorvarmare` till Home Assistants konfigurationsmapp under `custom_components`, inklusive `translations` och `brand`, och starta om Home Assistant. Kortet installeras separat.
+Om kontrollpanelens resurser är konfigurerade i YAML lägger du i stället till den här resursen i din befintliga `lovelace.resources`-lista och ändrar versionsvärdet när du uppdaterar integrationen:
+
+```yaml
+lovelace:
+  resource_mode: yaml
+  resources:
+    - url: /motorvarmare/ha-motorvarmare-card.js?v=DIN_INTEGRATIONSVERSION
+      type: module
+```
+
+Ersätt `DIN_INTEGRATIONSVERSION` med den installerade integrationsversionen. Om du redan använder YAML för resurser lägger du till raden i den befintliga `lovelace.resources`-listan och behåller alla dina övriga resurser. Byt inte en befintlig installation från lagringsläge till YAML enbart för kortets skull; i lagringsläge registrerar integrationen kortet automatiskt.
+
+För manuell installation: kopiera hela mappen `custom_components/motorvarmare` till Home Assistants konfigurationsmapp under `custom_components`, inklusive `translations`, `brand` och `www`, och starta om Home Assistant.
+
+### Uppgradera från det separata kortet
+
+Kortet ingår nu i integrationen och behöver inte längre installeras separat. Efter uppdatering och omstart av Home Assistant, ladda om webbläsaren eller appen och kontrollera att dina befintliga kort visas som de ska. Kortkonfiguration och bilarnas inställningar ska inte behöva skapas på nytt.
+
+För resurser som hanteras av Home Assistant flyttar integrationen automatiskt identifierade äldre resurser, inklusive det separata HACS-kortet och den tidigare manuella installationen `/local/ha-motorvarmare-card.js`. När det inbyggda kortet fungerar kan du ta bort det separata kortpaketet från HACS. Ta inte bort den nya inbyggda resursen.
+
+Om resurserna är konfigurerade i YAML ersätter du det gamla kortets resursadress med den inbyggda adressen ovan och startar om Home Assistant. Behåll endast en resurs för Motorvärmare-kortet: om den gamla och nya JavaScript-filen laddas samtidigt kan den äldre versionen användas. Om du har använt en annan anpassad adress tar du bort den gamla resursen manuellt, laddar om webbläsaren och kontrollerar att det inbyggda kortet visas.
 
 ## Avresor och kalender
 

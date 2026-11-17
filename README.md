@@ -8,9 +8,29 @@ Schedule an electric engine heater using the outdoor temperature and a departure
 
 Add `https://github.com/DanneG/ha-motorvarmare` as a custom repository in Marketplace or HACS with category **Integration**, then install it. Restart Home Assistant after updating. Under **Settings → Devices & services**, add **Motorvärmare** once for each car. Select the car's switch and an outdoor temperature sensor in °C or °F. A Google calendar is optional.
 
-Also install the separate [Engine Heater dashboard card](https://github.com/DanneG/ha-motorvarmare-card) as a custom repository with category **Dashboard**. Add the card to a dashboard and select the car's status entity. See the card's installation instructions.
+The dashboard card is included with the integration. When dashboard resources are managed by Home Assistant, the integration registers the card automatically during setup. After the integration is configured, reload your browser or Home Assistant app, add **Motorvärmare** to a dashboard, and select the car's status entity. Add one card per car, or use **Motorvärmare – översikt** to show several cars together.
 
-For a manual installation, copy `custom_components/motorvarmare` into the Home Assistant configuration's `custom_components` directory, including `translations` and `brand`, and restart Home Assistant. The card is installed separately.
+If dashboard resources are configured in YAML, add this resource to your existing `lovelace.resources` list instead and replace the version value when you update the integration:
+
+```yaml
+lovelace:
+  resource_mode: yaml
+  resources:
+    - url: /motorvarmare/ha-motorvarmare-card.js?v=YOUR_INTEGRATION_VERSION
+      type: module
+```
+
+For example, replace `YOUR_INTEGRATION_VERSION` with the installed integration version. If you already use YAML resources, add this item to the existing `lovelace.resources` list and keep all your other resources. Do not switch an existing installation from storage to YAML just to add this card; the integration handles registration in storage mode.
+
+For a manual installation, copy the entire `custom_components/motorvarmare` directory into Home Assistant's `custom_components` directory, including `translations`, `brand` and `www`, and restart Home Assistant.
+
+### Upgrading from the separate card
+
+The card is now included in the integration; a separate card installation is no longer required. After updating and restarting Home Assistant, reload the browser or app and check that your existing cards load correctly. Your card configuration and car settings should not need to be recreated.
+
+For resources managed by Home Assistant, the integration migrates recognized older resources automatically, including the separate HACS card and the previous `/local/ha-motorvarmare-card.js` manual installation. Once the integrated card works, the separate card package can be removed from HACS. Do not remove the new integrated resource.
+
+For resources configured in YAML, replace the old card's resource URL with the integrated URL shown above and restart Home Assistant. Keep only one Motorvärmare card resource: loading the old and new JavaScript together can cause the older card to be used. If you used a different custom URL, remove that old resource manually, reload the browser and check that the integrated card loads.
 
 ## Departures and calendar
 

@@ -4,11 +4,12 @@
   "codeowners": [
     "@DanneG"
   ],
+  "after_dependencies": ["http", "lovelace"],
   "config_flow": true,
   "documentation": "https://github.com/DanneG/ha-motorvarmare",
   "integration_type": "service",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/DanneG/ha-motorvarmare/issues",
   "requirements": [],
-  "version": "0.11.1"
+  "version": "0.12.0"
 }

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
@@ -10,14 +12,21 @@ from .const import DOMAIN
 from .controller import HeaterController
 
 PLATFORMS = [Platform.DATETIME, Platform.SENSOR, Platform.BUTTON, Platform.TIME, Platform.SWITCH, Platform.CALENDAR]
+_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Register the read-only schedule API once for all cars."""
     from homeassistant.components import websocket_api
+    from .frontend import async_register_card
     from .websocket import websocket_get_schedule
 
     websocket_api.async_register_command(hass, websocket_get_schedule)
+    try:
+        await async_register_card(hass, config)
+    except Exception:
+        # A dashboard failure must not prevent the heater itself from starting.
+        _LOGGER.exception("Unable to register the Motorvärmare dashboard card")
     return True
 
 
