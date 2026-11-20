@@ -378,7 +378,7 @@ class MotorvarmareCard extends HTMLElement {
     if (nowLabel && ratio!==null) nowLabel.style.left=`${Math.max(7,Math.min(93,ratio*100)).toFixed(2)}%`;
     const progress=this.shadowRoot.querySelector(".active-progress");
     if (progress && ratio!==null) progress.setAttribute("aria-valuenow",String(Math.round(ratio*100)));
-    const remaining=this.shadowRoot.querySelector(".active-remaining");
+    const remaining=this.shadowRoot.querySelector(".active-remaining span");
     if (remaining && Number.isFinite(data.end)) {
       const mins=Math.ceil((data.end-now)/60000);
       remaining.textContent=mins>0 ? `${mvDuration(this._hass,mins)} ${mvText(this._hass,"activeRemaining")}` : mvText(this._hass,"activeFinished");
@@ -708,7 +708,7 @@ class MotorvarmareCard extends HTMLElement {
       Number.isFinite(endMsActive) && `${t("timelineStop")} ${activeClock(a.active_until)}`,
     ].filter(Boolean).map(mvEscape).join(" · ");
     const activeActions = `<div class="quick-actions active-actions"><button id="stop-now" ${!stopOk || this._pending ? "disabled" : ""}>${t("stopNow")}</button>${e.extend_30 ? extend : ""}</div>`;
-    const activeControl=active ? `<div class="active-header"><div class="sectionhead">${t("activeHeating")}</div><span class="active-live"><i></i>${t("on")}</span></div><div class="active-remaining">${mvEscape(activeRemaining)}</div>${activeMilestones ? `<div class="active-milestones">${activeMilestones}</div>` : ""}${activeActions}${e.extend_30 && a.can_extend === false && remainingExtension!==null && remainingExtension<=0 ? `<div class="hint active-limit">${t("extendLimit")}</div>` : e.extend_30 && a.can_extend === true && remainingExtension!==null && remainingExtension<30 ? `<div class="hint active-limit">${t("maximumStop")} ${mvEscape(this._clock(a.active_max_until,currentDay))}.</div>` : ""}${activeTimeline}${graph}${activeMetrics}` : "";
+    const activeControl=active ? `<div class="active-header"><div class="sectionhead">${t("activeHeating")}</div><span class="active-live"><i></i>${t("on")}</span></div><div class="active-remaining" data-expired-label="${t("activeFinished")}"><span>${mvEscape(activeRemaining)}</span></div>${activeMilestones ? `<div class="active-milestones">${activeMilestones}</div>` : ""}${activeActions}${e.extend_30 && a.can_extend === false && remainingExtension!==null && remainingExtension<=0 ? `<div class="hint active-limit">${t("extendLimit")}</div>` : e.extend_30 && a.can_extend === true && remainingExtension!==null && remainingExtension<30 ? `<div class="hint active-limit">${t("maximumStop")} ${mvEscape(this._clock(a.active_max_until,currentDay))}.</div>` : ""}${activeTimeline}${graph}${activeMetrics}` : "";
     const calendar = h.states[e.calendar];
     const calendarOk = mvUsable(status) && calendar && calendar.state !== "unavailable";
     const windowData=mvUsable(status) ? ((this._windowOffset || this._windowOverride) ? this._windowEvents : a.schedule_7_days) : null;
@@ -1115,6 +1115,8 @@ class MotorvarmareCard extends HTMLElement {
         .active-live{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border-radius:999px;background:color-mix(in srgb,var(--primary-color) 14%,transparent);color:var(--primary-color);font-size:11px;font-weight:700}
         .active-live i{width:7px;height:7px;border-radius:50%;background:currentColor}
         .active-remaining{font-size:22px;line-height:1.2;font-weight:700;margin:10px 0 14px}
+        .active-remaining{display:grid}.active-remaining>span,.active-remaining:after{grid-area:1/1}.active-remaining:after{content:attr(data-expired-label);visibility:hidden}
+        .active-plot{position:relative}.active-stop-explanation{position:absolute;bottom:0;left:0}
         .active-milestones{margin-top:-6px;font-size:14px;color:var(--secondary-text-color)}
         .control-panel + .departure-summary{margin-top:16px}
         .active-timeline{padding:0;margin-top:16px}
