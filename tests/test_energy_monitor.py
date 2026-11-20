@@ -5,10 +5,12 @@ from datetime import datetime, timedelta, timezone
 import sys
 import types
 import unittest
+from unittest.mock import patch
 
 import test_controller as mocks
 
 from test_motorvarmare.energy import EnergyMonitor, _ENERGY_UNITS, _POWER_UNITS, _read_number
+from test_motorvarmare import energy
 
 
 def state(value, unit, state_class=None):
@@ -28,6 +30,7 @@ class EnergyMonitorTests(unittest.TestCase):
         self.hass = mocks.Hass()
         self.hass.config = types.SimpleNamespace(language="sv")
         self.hass.states["sensor.power"] = state("0", "W")
+        self.hass.states["sensor.power"].last_reported = self.now
         self.hass.states["sensor.energy"] = state("1000", "Wh", "total_increasing")
         self.config = {"switch_entity": "switch.heater", "power_entity": "sensor.power",
                        "energy_entity": "sensor.energy", "power_min_watts": 10,
@@ -46,6 +49,83 @@ class EnergyMonitorTests(unittest.TestCase):
     async def switch(self, value):
         self.hass.states["switch.heater"].state = value
         await self.monitor.async_update()
+
+    @mocks.sync_test
+    async def test_storage_checkpoints_and_flush_on_session_end(self):
+        clock = types.SimpleNamespace(monotonic=lambda: self.now.timestamp())
+        with patch.object(energy, "time", clock):
+            # Use a year's worth of finished sessions to exercise the expensive snapshot.
+            self.monitor._history = [{"complete": True, "energy_kwh": 0.5}] * 1000
+            self.hass.states["sensor.power"].state = "500"
+            with patch.object(self.monitor.store, "async_save", wraps=self.monitor.store.async_save) as save:
+                await self.switch("on")
+                self.assertEqual(save.await_count, 1)
+                for i in range(60):
+                    self.now += timedelta(seconds=2)
+                    self.hass.states["sensor.power"].state = str(500 + i)
+                    await self.monitor.async_update()
+                self.assertEqual(save.await_count, 1)
+                self.assertGreater(self.monitor.session_energy_kwh, 0)
+                self.assertGreater(len(self.monitor.active_power_samples), 1)
+                self.advance(3)
+                await self.monitor.async_update()
+                self.assertEqual(save.await_count, 2)
+                self.advance(1)
+                await self.switch("off")
+                self.assertEqual(save.await_count, 3)
+                saved = self.hass.storage[self.monitor.store.key]
+                self.assertFalse(saved["session_active"])
+                self.assertEqual(saved["heating_history"][-1]["energy_kwh"], self.monitor.session_energy_kwh)
+
+    @mocks.sync_test
+    async def test_entry_without_optional_sensor_keys_handles_events_and_polls(self):
+        class EntityStates(dict):
+            def get(self, entity_id):
+                # Home Assistant's state machine requires a string entity ID.
+                return super().get(entity_id.lower())
+
+        self.hass.states = EntityStates(self.hass.states)
+        tracker = sys.modules["homeassistant.helpers.event"]
+        for options in ({}, {"power_entity": "sensor.power"}, {"energy_price": 1.2}):
+            with self.subTest(options=options):
+                monitor = EnergyMonitor(self.hass, self.entry, {"switch_entity": "switch.heater", **options}, lambda: None)
+                queue = []
+                self.hass.async_create_task = queue.append
+                self.hass.states["switch.heater"].state = "off"
+                with patch.object(tracker, "async_track_state_change_event", create=True, return_value=lambda: None) as track:
+                    await monitor.async_start()
+                    await queue.pop(0)
+                    self.hass.states["switch.heater"].state = "on"
+                    listener = track.call_args.args[2]
+                    listener(types.SimpleNamespace(data={"entity_id": "switch.heater", "new_state": self.hass.states["switch.heater"]}))
+                    await queue.pop(0)
+                    self.assertEqual(monitor.energy_session_status, "measuring" if options.get("power_entity") else "disabled")
+                    self.advance(1)
+                    await monitor.async_update()
+                    self.hass.states["switch.heater"].state = "off"
+                    await monitor.async_shutdown()
+                    self.assertTrue(monitor.heating_history[0]["complete"])
+
+    @mocks.sync_test
+    async def test_history_retains_departure_only_for_continuously_matched_run(self):
+        for changes_identity in (False, True):
+            with self.subTest(changes_identity=changes_identity):
+                token = ("trip", self.now.isoformat())
+                self.monitor = EnergyMonitor(self.hass, self.entry, self.config, lambda: None,
+                                             departure_identity=lambda **kwargs: token)
+                await self.switch("off")
+                await self.switch("on")
+                self.advance(1)
+                if changes_identity:
+                    token = ("overlapping-trip", self.now.isoformat())
+                await self.monitor.async_update()
+                await self.switch("off")
+                item = self.monitor.heating_history[0]
+                if changes_identity:
+                    self.assertNotIn("departure_uid", item)
+                    self.assertNotIn("departure_time", item)
+                else:
+                    self.assertEqual((item["departure_uid"], item["departure_time"]), token)
 
     @mocks.sync_test
     async def test_power_alarm_waits_and_sends_once_per_real_on_session(self):
@@ -70,6 +150,7 @@ class EnergyMonitorTests(unittest.TestCase):
         self.assertEqual(len(self.hass.calls), 2)  # no duplicate in same run
         await self.switch("off")
         self.assertFalse(self.monitor.alarm_active)
+        self.hass.states["sensor.power"].last_reported = self.now
         await self.switch("on")
         self.advance(5)
         await self.monitor.async_update()

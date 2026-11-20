@@ -9,6 +9,24 @@ permissions:
   contents: read
 
 jobs:
+  behavior:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m unittest discover -s tests
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: npm install --no-save --package-lock=false playwright@1.62.1
+      - run: npx playwright install --with-deps chromium
+      - name: Run dashboard tests
+        run: |
+          export MOTORVARMARE_BROWSER="$(node -p "require('playwright').chromium.executablePath()")"
+          for test in tests/frontend/*.cjs; do node "$test" || exit 1; done
   hacs:
     runs-on: ubuntu-latest
     steps:

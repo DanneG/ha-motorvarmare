@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from datetime import datetime, time, timedelta
 import logging
 import math
@@ -26,6 +27,7 @@ from .recurrence import expand_series, next_occurrence, parse_rule
 
 _LOGGER = logging.getLogger(__name__)
 _MAX_RUNTIME = timedelta(hours=4)
+_LOCAL_HISTORY_RETENTION = timedelta(days=31)
 _CALENDAR_INTERVAL = 300
 _CALENDAR_RETRY_INTERVAL = 30
 _STARTUP_ALERT_GRACE_SECONDS = 5 * 60
@@ -95,6 +97,10 @@ class HeaterController:
         self.source = self.error = None
         self.owned = False
         self._stop_requested = False
+        self._stop_state_dirty = False
+        self._closed = False
+        self._session_departure = None
+        self._session_on_since = None
         self._temperature_blocked = False
         self.automation_paused = False
         self.pause_until = None
@@ -125,7 +131,8 @@ class HeaterController:
         self._alerts_after = None
         self._alert_grace_timer = None
         self._alerts_closed = False
-        self.energy = EnergyMonitor(hass, entry, self.config, self._notify, self._alerts_allowed)
+        self.energy = EnergyMonitor(hass, entry, self.config, self._notify, self._alerts_allowed,
+                                   departure_identity=self._active_local_departure_identity)
 
     def _alerts_allowed(self):
         return not self._alerts_closed and (self._alerts_after is None or _alert_clock() >= self._alerts_after)
@@ -280,9 +287,26 @@ class HeaterController:
             "suppression_until": iso(self._suppression_until),
             "suppression_exempt": sorted(self._suppression_exempt),
         })
+        self._stop_state_dirty = False
+
+    async def _save_stop_state(self):
+        """Try to persist a stop, without making the physical command depend on storage."""
+        try:
+            await self._save()
+        except Exception:
+            self._stop_state_dirty = True
+            _LOGGER.exception("Unable to persist heater stop for %s; will retry", self.entry.title)
+
+    @asynccontextmanager
+    async def _live_control(self):
+        """Reject delayed service calls once this car has unloaded."""
+        async with self._lock:
+            if self._closed:
+                raise ValueError("switch_unavailable")
+            yield
 
     async def async_set_manual_departure(self, value):
-        async with self._lock:
+        async with self._live_control():
             self.manual_departure = self._parse(value)
             await self._save()
         await self.async_update()
@@ -295,7 +319,7 @@ class HeaterController:
 
     async def async_skip_next(self):
         """Skip the next scheduled departure without changing any calendar."""
-        async with self._lock:
+        async with self._live_control():
             now = dt_util.utcnow()
             candidates = self._candidates(now)
             if not candidates:
@@ -314,14 +338,14 @@ class HeaterController:
         moment = self._parse(value)
         if moment and moment <= dt_util.utcnow():
             raise ValueError("pause_until_past")
-        async with self._lock:
+        async with self._live_control():
             self.pause_until = moment
             await self._save()
         await self.async_update()
 
     async def async_set_paused(self, value):
         """Pause scheduled starts while retaining manual Start now."""
-        async with self._lock:
+        async with self._live_control():
             self.automation_paused = bool(value)
             if not value or (self.pause_until and self.pause_until <= dt_util.utcnow()):
                 self.pause_until = None
@@ -347,7 +371,7 @@ class HeaterController:
                                     "rrule": rrule, "exceptions": []}, moment):
                 raise ValueError("recurring_unsupported")
         uid = str(uuid4())
-        async with self._lock:
+        async with self._live_control():
             if rrule:
                 self.recurring_departures.append({"uid": uid, "departure": moment, "summary": title,
                                                   "rrule": rrule, "exceptions": []})
@@ -380,7 +404,7 @@ class HeaterController:
         if rrule:
             parse_rule(rrule)
         now = dt_util.utcnow()
-        async with self._lock:
+        async with self._live_control():
             oneoffs = list(self.local_departures)
             series_list = list(self.recurring_departures)
             series = next((item for item in series_list if item["uid"] == uid), None)
@@ -445,7 +469,7 @@ class HeaterController:
 
     async def async_delete_local_departure(self, uid, recurrence_id=None):
         """Remove an event owned by this car, never an external event."""
-        async with self._lock:
+        async with self._live_control():
             series = next((item for item in self.recurring_departures if item["uid"] == uid), None)
             if series is not None:
                 if recurrence_id:
@@ -486,13 +510,13 @@ class HeaterController:
         await self.async_update()
 
     async def async_set_weekly_time(self, day, value):
-        async with self._lock:
+        async with self._live_control():
             self.weekly_times[day] = value.replace(tzinfo=None)
             await self._save()
         await self.async_update()
 
     async def async_set_weekly_enabled(self, day, value):
-        async with self._lock:
+        async with self._live_control():
             self.weekly_enabled[day] = value
             await self._save()
         await self.async_update()
@@ -522,7 +546,7 @@ class HeaterController:
 
     async def async_extend_30(self):
         """Extend this run by up to 30 minutes without changing a departure."""
-        async with self._lock:
+        async with self._live_control():
             if not self.can_extend:
                 raise ValueError("cannot_extend")
             previous = self._extended_until
@@ -545,7 +569,7 @@ class HeaterController:
 
     async def async_start_now(self):
         """Start one bounded session and persist ownership before the command."""
-        async with self._lock:
+        async with self._live_control():
             state = self.hass.states.get(self.config[CONF_SWITCH])
             if not state or state.state not in (STATE_ON, STATE_OFF):
                 raise ValueError("switch_unavailable")
@@ -565,6 +589,7 @@ class HeaterController:
             self._active_departure = now + timedelta(minutes=duration)
             self._started_at = now
             self._active_source = "Starta nu"
+            self._session_departure = None
             await self._save()
             try:
                 if not await self._turn_on_confirmed():
@@ -630,13 +655,13 @@ class HeaterController:
 
     async def async_stop_now(self):
         """Stop only an owned session and persist a retry if it fails."""
-        async with self._lock:
+        async with self._live_control():
             if not self.owned:
                 raise ValueError("not_owned")
             now = dt_util.utcnow()
             self._suppress_current_run(now, self._candidates(now))
             self._stop_requested = True
-            await self._save()
+            await self._save_stop_state()
             if not await self._turn_off():
                 self.status = "Fel"
                 self.error = "Kunde inte stänga av brytaren; försöker igen"
@@ -663,10 +688,13 @@ class HeaterController:
 
     @callback
     def _tick(self, _now):
-        self.hass.async_create_task(self.async_update())
+        if not self._closed:
+            self.hass.async_create_task(self.async_update())
 
     async def async_shutdown(self):
         async with self._lock:
+            if self._closed:
+                return True
             self._alerts_closed = True
             now = dt_util.utcnow()
             if (self.owned and not self._stop_requested and not self._temperature_blocked
@@ -680,7 +708,7 @@ class HeaterController:
                 # past the explicit extension; retain the actual planned end.
                 self._resume_extended_until = self.active_until
                 self._resume_switch = self.config[CONF_SWITCH]
-                await self._save()
+                await self._save_stop_state()
             elif (self.owned and not self._stop_requested and not self.automation_paused and not self._temperature_blocked
                     and self.post_departure_minutes and self._active_source != "Starta nu"
                     and self._active_departure and self._started_at
@@ -688,13 +716,26 @@ class HeaterController:
                     and now < self._started_at + _MAX_RUNTIME):
                 self._resume_departure, self._resume_source, self._resume_started_at = (
                     self._active_departure, self._active_source, self._started_at)
-                await self._save()
+                await self._save_stop_state()
             if self.owned and not await self._turn_off():
                 self._alerts_closed = False
+                now = dt_util.utcnow()
+                self._suppress_current_run(now, self._candidates(now))
+                self._stop_requested = True
+                await self._save_stop_state()
                 self.error = "Kunde inte stänga av brytaren"
                 self._notify()
                 self._schedule_operational_alerts()
                 return False
+            if self._stop_state_dirty:
+                await self._save_stop_state()
+                if self._stop_state_dirty:
+                    self._alerts_closed = False
+                    now = dt_util.utcnow()
+                    self._suppress_current_run(now, self._candidates(now))
+                    return False
+            # Tasks already waiting for this lock must not run the old schedule.
+            self._closed = True
             if self._unsub:
                 self._unsub()
                 self._unsub = None
@@ -744,7 +785,7 @@ class HeaterController:
         self._active_departure = self._started_at = None
         self._active_source = None
         self._extended_until = None
-        await self._save()
+        await self._save_stop_state()
         return True
 
     async def _abort_unconfirmed_start(self):
@@ -875,8 +916,46 @@ class HeaterController:
             if (departure > self._active_departure and self._heating_end(departure, source) > now and key not in self._suppressed
                     and departure - timedelta(minutes=minutes) <= min(now, self.active_until)):
                 self._active_departure, self._active_source = departure, source
+                self._session_departure = None
                 changed = True
         return changed
+
+    def _active_local_departure_identity(self, *, stopping=False):
+        """Return the verified local identity for this observed session, if any."""
+        if stopping:
+            return self._session_departure
+        if not self.owned or self._session_departure is None:
+            return None
+        # An external off/on between scheduler ticks is a different session,
+        # even if the controller has not yet noticed the physical stop.
+        state = self.hass.states.get(self.config[CONF_SWITCH])
+        if state and state.state == STATE_ON:
+            changed = getattr(state, "last_changed", None)
+            if self._session_on_since is None:
+                self._session_on_since = changed
+            elif changed != self._session_on_since:
+                self._session_departure = None
+        return self._session_departure
+
+    def _unique_local_departure(self, now):
+        """Attribute a run only if a single local occurrence owns its whole window."""
+        departure = self._active_departure
+        if self._active_source != "Planerad" or not departure or not self._started_at:
+            return None
+        local = self.local_events_between(departure, departure + timedelta(microseconds=1))
+        if len(local) != 1 or not self._calendar_ok:
+            return None
+        temperature = self._temperature()
+        if temperature is None:
+            return None
+        warmup = timedelta(minutes=duration_for_temperature(temperature))
+        for moment, source in self._candidates(now, include_recent=True):
+            if (moment, source) == (departure, "Planerad"):
+                continue
+            if (moment - warmup <= self.active_until and self._heating_end(moment, source) >= self._started_at
+                    and f"{source}|{moment.isoformat()}" not in self._suppressed):
+                return None
+        return local[0]["uid"], departure.isoformat()
 
     @property
     def schedule_7_days(self):
@@ -891,11 +970,20 @@ class HeaterController:
         temperature = self._temperature()
         minutes = duration_for_temperature(temperature) if temperature is not None else None
         locals_by_time = {}
-        for item in self.local_events_between(now - timedelta(minutes=self.post_departure_minutes), end + _MAX_RUNTIME):
+        midnight = dt_util.as_utc(datetime.combine(local_now.date(), time.min, tzinfo=dt_util.get_default_time_zone()))
+        history_start = midnight - timedelta(minutes=self.post_departure_minutes)
+        for item in self.local_events_between(history_start, end + _MAX_RUNTIME):
             locals_by_time.setdefault(item["departure"], []).append(item)
         schedule = []
-        candidates = self._candidates(now, include_skipped=True)
+        candidates = [(moment, source) for moment, source in self._candidates(now, include_skipped=True)
+                      if source != "Planerad"]
+        # Display today's elapsed local departures without feeding them into
+        # the scheduler. A running post-departure session may have begun yesterday.
+        for moment, items in locals_by_time.items():
+            if moment >= midnight or self._heating_end(moment, "Planerad") > midnight:
+                candidates.extend((moment, "Planerad") for _ in items)
         if (self.owned and self._active_source != "Starta nu" and self._active_departure
+                and (self._active_departure, self._active_source) not in candidates
                 and self._active_departure <= now < self.active_until):
             candidates.append((self._active_departure, self._active_source))
         for departure, source in sorted(candidates):
@@ -1024,8 +1112,12 @@ class HeaterController:
 
     async def async_update(self):
         async with self._lock:
+            if self._closed:
+                return
             try:
                 await self._update_locked()
+                if self._stop_state_dirty:
+                    await self._save_stop_state()
             except Exception:
                 self.error = "Ett oväntat fel uppstod; kontrollera loggen"
                 self.status = "Fel"
@@ -1116,6 +1208,12 @@ class HeaterController:
     async def _update_locked(self):
         now = dt_util.utcnow()
         self.error = None
+        if self.owned and self._stop_requested:
+            if not await self._turn_off():
+                self.status, self.error = "Fel", "Kunde inte bekräfta att brytaren är av; försöker igen"
+                return
+        if self._session_departure and self.owned and self._unique_local_departure(now) != self._session_departure:
+            self._session_departure = None
         if self.automation_paused and self.pause_until and now >= self.pause_until:
             self.automation_paused = False
             self.pause_until = None
@@ -1128,7 +1226,7 @@ class HeaterController:
         if self.manual_departure and self.manual_departure + retain_after <= now:
             self.manual_departure = None
             await self._save()
-        remaining = [item for item in self.local_departures if item["departure"] + retain_after > now]
+        remaining = [item for item in self.local_departures if item["departure"] >= now - _LOCAL_HISTORY_RETENTION]
         if len(remaining) != len(self.local_departures):
             self.local_departures = remaining
             await self._save()
@@ -1196,6 +1294,7 @@ class HeaterController:
                     self.owned = True
                     self._active_departure, self._active_source, self._started_at = (
                         self._resume_departure, self._resume_source, self._resume_started_at)
+                    self._session_departure = None
                     self._extended_until = self._resume_extended_until
                     self._resume_departure = self._resume_source = self._resume_started_at = None
                     self._resume_extended_until = self._resume_switch = None
@@ -1281,6 +1380,8 @@ class HeaterController:
             self._active_departure, self._active_source = self.next_departure, self.source
             self._started_at = self._resume_started_at if resumed else now
             self._extended_until = None
+            self._session_on_since = None
+            self._session_departure = None if resumed else self._unique_local_departure(now)
             self._resume_departure = self._resume_source = self._resume_started_at = None
             await self._save()
             try:

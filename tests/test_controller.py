@@ -998,6 +998,118 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(self.hass.states["switch.heater"].state, "off")
 
     @sync_test
+    async def test_stop_now_remains_effective_through_disk_outage(self):
+        self.item.manual_departure = self.now + timedelta(minutes=25)
+        await self.item.async_update()
+        save = self.item.store.async_save
+
+        async def fail_save(data):
+            raise OSError("storage unavailable")
+
+        self.item.store.async_save = fail_save
+        self.hass.stop_no_effect = True
+        with self.assertRaisesRegex(ValueError, "turn_off_failed"):
+            await self.item.async_stop_now()
+        self.assertTrue(self.item.owned)
+        self.assertEqual(self.hass.calls.count(("switch", "turn_off")), 1)
+        self.hass.stop_no_effect = False
+        await self.item.async_update()
+        self.assertEqual(self.hass.states["switch.heater"].state, "off")
+        self.assertFalse(self.item.owned)
+        self.item.store.async_save = save
+        await self.item.async_update()
+        restored = new_controller(self.hass)
+        await restored.async_load()
+        await restored.async_update()
+        self.assertFalse(restored.owned)
+        self.assertEqual(self.hass.calls.count(("switch", "turn_on")), 1)
+
+    @sync_test
+    async def test_queued_tick_and_service_cannot_reenergize_unloaded_switch(self):
+        self.item.manual_departure = self.now + timedelta(minutes=25)
+        await self.item.async_update()
+        pending = []
+        self.hass.async_create_task = pending.append
+        original = self.hass.async_call
+
+        async def call_during_unload(domain, service, data, **kwargs):
+            if service == "turn_off":
+                self.item._tick(self.now)
+            return await original(domain, service, data, **kwargs)
+
+        self.hass.async_call = call_during_unload
+        self.assertTrue(await self.item.async_shutdown())
+        self.assertEqual(len(pending), 1)
+        await pending.pop()
+        self.item._tick(self.now)
+        self.assertEqual(pending, [])
+        with self.assertRaises(ValueError):
+            await self.item.async_start_now()
+        self.assertEqual(self.hass.calls.count(("switch", "turn_on")), 1)
+        self.assertEqual(self.hass.states["switch.heater"].state, "off")
+
+    @sync_test
+    async def test_failed_unload_continues_retrying_and_suppresses_current_run(self):
+        self.item.manual_departure = self.now + timedelta(minutes=25)
+        await self.item.async_update()
+        self.hass.stop_no_effect = True
+        self.assertFalse(await self.item.async_shutdown())
+        self.hass.stop_no_effect = False
+        await self.item.async_update()
+        await self.item.async_update()
+        self.assertEqual(self.hass.calls.count(("switch", "turn_on")), 1)
+        self.assertEqual(self.hass.states["switch.heater"].state, "off")
+        self.assertTrue(await self.item.async_shutdown())
+
+    @sync_test
+    async def test_local_departure_history_survives_restart_without_rescheduling(self):
+        departure = self.now + timedelta(minutes=25)
+        uid = await self.item.async_add_local_departure(departure, "Early shift")
+        self.now = departure + timedelta(minutes=5)
+        await self.item.async_update()
+        restored = new_controller(self.hass)
+        await restored.async_load()
+        await restored.async_update()
+        self.assertIsNone(restored.next_departure)
+        self.assertFalse(restored.owned)
+        self.assertEqual([e["uid"] for e in restored.schedule_7_days], [uid])
+        date = dt.as_local(departure).date()
+        projection = await restored.async_schedule_between(date, date + timedelta(days=1))
+        self.assertEqual([e["uid"] for e in projection["events"]], [uid])
+        self.now = departure + timedelta(days=32)
+        await restored.async_update()
+        self.assertEqual(restored.local_events_between(departure, departure + timedelta(seconds=1)), [])
+
+    @sync_test
+    async def test_only_unambiguous_local_run_carries_its_departure_identity(self):
+        departure = self.now + timedelta(minutes=25)
+        uid = await self.item.async_add_local_departure(departure)
+        self.assertEqual(self.item._active_local_departure_identity(), (uid, departure.isoformat()))
+        await self.item.async_add_local_departure(departure + timedelta(minutes=20))
+        self.assertIsNone(self.item._active_local_departure_identity())
+        self.now = departure
+        await self.item.async_update()
+        self.assertTrue(self.item.owned)
+        self.assertIsNone(self.item._active_local_departure_identity())
+
+    @sync_test
+    async def test_retained_single_departure_matches_recorded_heat_and_cost(self):
+        self.item.config.update(power_entity="sensor.power", energy_price=2.0, energy_currency="SEK")
+        self.hass.states["sensor.power"] = State("1000", "W")
+        await self.item.async_update()  # observe switch off
+        departure = self.now + timedelta(minutes=30)
+        uid = await self.item.async_add_local_departure(departure, "Work")
+        self.now = departure
+        await self.item.async_update()
+        recorded = self.item.energy.heating_history[0]
+        event = self.item.schedule_7_days[0]
+        self.assertEqual((recorded["departure_uid"], recorded["departure_time"]),
+                         (uid, event["departure"]))
+        self.assertEqual(recorded["duration_minutes"], 30)
+        self.assertEqual(recorded["energy_kwh"], 0.5)
+        self.assertEqual((recorded["estimated_cost"], recorded["cost_currency"]), (1.0, "SEK"))
+
+    @sync_test
     async def test_stop_now_does_not_turn_off_externally_started_switch(self):
         self.hass.states["switch.heater"].state = "on"
         with self.assertRaisesRegex(ValueError, "not_owned"):

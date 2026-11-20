@@ -20,6 +20,7 @@ class StartupLowPowerTests(unittest.TestCase):
         self.hass = mocks.Hass()
         self.hass.config = types.SimpleNamespace(language="sv")
         self.hass.states["sensor.power"] = mocks.State("0", "W")
+        self.hass.states["sensor.power"].last_reported = self.now
         self.config = {"switch_entity": "switch.heater", "power_entity": "sensor.power",
                        "power_min_watts": 10, "power_delay_minutes": 5}
         self.entry = types.SimpleNamespace(entry_id="car1", title="Bil")
@@ -39,20 +40,26 @@ class StartupLowPowerTests(unittest.TestCase):
 
     async def power(self, value):
         self.hass.states["sensor.power"].state = str(value)
+        self.hass.states["sensor.power"].last_reported = self.now
         await self.monitor.async_update()
 
     @mocks.sync_test
-    async def test_zero_at_start_alerts_after_five_minutes(self):
-        # A sensor reporting only changes may still have its 0 W observation
-        # from before switch-on; this must not suppress the unplugged warning.
-        self.hass.states["sensor.power"].last_reported = self.now - timedelta(hours=1)
+    async def test_stale_zero_waits_for_new_report_then_full_delay(self):
+        self.hass.states["sensor.power"].last_reported = self.now - timedelta(hours=8)
+        self.config.update(power_deviation_enabled=True, power_expected_min_watts=100)
         await self.switch("on")
+        self.assertEqual(self.monitor.monitor_status, "waiting")
+        self.advance(5)
+        await self.monitor.async_update()
+        self.assertIsNone(self.monitor._low_since)
+        self.assertEqual(self.hass.calls, [])
+        await self.power(0)
         self.advance(4)
         await self.monitor.async_update()
         self.assertEqual(self.hass.calls, [])
         self.advance(1)
         await self.monitor.async_update()
-        self.assertEqual(self.hass.calls, [("persistent_notification", "create")])
+        self.assertEqual(self.hass.calls, [("persistent_notification", "create")] * 2)
 
     @mocks.sync_test
     async def test_early_departure_is_silent_and_new_run_rearms(self):
@@ -66,6 +73,7 @@ class StartupLowPowerTests(unittest.TestCase):
         self.assertFalse(self.monitor.alarm_active)
         self.assertEqual(self.hass.calls, [])
         await self.switch("off")
+        self.hass.states["sensor.power"].last_reported = self.now
         await self.switch("on")
         self.advance(5)
         await self.monitor.async_update()
@@ -149,6 +157,7 @@ class StartupLowPowerTests(unittest.TestCase):
         self.assertEqual(self.hass.calls, [])
         self.hass.states["switch.heater"].state = "off"
         await restored.async_update()
+        self.hass.states["sensor.power"].last_reported = self.now
         self.hass.states["switch.heater"].state = "on"
         await restored.async_update()
         self.advance(5)

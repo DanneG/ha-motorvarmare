@@ -20,6 +20,7 @@ _ENERGY_UNITS = {"mWh": 0.000001, "Wh": 0.001, "kWh": 1.0, "MWh": 1000.0}
 _HISTORY_LIMIT = 1000
 _POWER_GRAPH_LIMIT = 512
 _POWER_GRAPH_INTERVAL = timedelta(seconds=30)
+_CHECKPOINT_SECONDS = 300
 _STARTUP_ALERT_RETRY_SECONDS = 5 * 60
 _LEGACY_HISTORY_LIMIT = 100
 _TOTAL_LIMITS = {"daily": 366, "weekly": 104, "monthly": 36}
@@ -288,8 +289,13 @@ class EnergyMonitor:
     power timer, rather than proving that the load has been low throughout.
     """
 
-    def __init__(self, hass, entry, config, notify, alerts_allowed=None):
+    def __init__(self, hass, entry, config, notify, alerts_allowed=None, *, departure_identity=None):
         self.hass, self.entry, self.config, self._notify = hass, entry, config, notify
+        self._departure_identity = departure_identity
+        self._history_departure = None
+        self._dirty = False
+        self._urgent_save = False
+        self._next_checkpoint = 0.0
         self._alerts_allowed = alerts_allowed or (lambda: True)
         self._deferred_low_epoch = None
         self._deferred_low_deviation = False
@@ -323,6 +329,7 @@ class EnergyMonitor:
         # Low-power warnings belong to the observed start only. None means
         # closed (including after a restart or an unknown switch state).
         self._startup_started = None
+        self._startup_sample_seen = False
         self._low_start_deadline = None
         self._deviation_low_deadline = None
         self.alarm_active = False
@@ -507,6 +514,8 @@ class EnergyMonitor:
             return "power_unavailable"
         if not switch or switch.state != "on":
             return "waiting"
+        if self._startup_started is not None and not self._startup_sample_seen:
+            return "waiting"
         return "low_power" if self.power_w < self._threshold() else "ok"
 
     def _threshold(self):
@@ -543,23 +552,14 @@ class EnergyMonitor:
         value = _finite_number(self.config.get("power_deviation_delay_minutes", 5))
         return value if value is not None and value >= 0 else 5
 
-    def _startup_power_fresh(self, power_state, snapshot, observed):
-        """Don't treat a pre-start high reading as proof the load started.
-
-        A power change observed after switch-on is fresh even for a sensor
-        that only reports changes. Home Assistant states also provide a
-        report/update timestamp; stubs without one use direct observations.
-        """
+    def _startup_power_fresh(self, power_state, snapshot, observed, *, tolerance=timedelta(0)):
+        """Require a timestamped report or an observed power event since switch-on."""
         if self._startup_started is None or observed is None or observed < self._startup_started:
             return False
-        if snapshot is not None and snapshot.get("power_event"):
-            return True
         reported = getattr(power_state, "last_reported", None) or getattr(power_state, "last_updated", None)
         if reported is not None and getattr(reported, "tzinfo", None):
-            # Devices can deliver the power reading just before the switch
-            # state event even though both describe the same physical start.
-            return dt_util.as_utc(reported) >= self._startup_started - timedelta(seconds=5)
-        return snapshot is None
+            return self._startup_started - tolerance <= dt_util.as_utc(reported) <= observed
+        return bool(snapshot and snapshot.get("power_event"))
 
     def _low_start_open(self, deadline, now):
         return bool(deadline is not None and self._startup_started is not None
@@ -676,6 +676,24 @@ class EnergyMonitor:
             self._cost_invalid = True
             self._session_cost = None
 
+    def _state(self, setting):
+        entity_id = self.config.get(setting)
+        return self.hass.states.get(entity_id) if entity_id else None
+
+    def _current_departure(self, switch):
+        if self._departure_identity is None or switch is None:
+            return None
+        if switch.state == "off":
+            return self._departure_identity(stopping=True)
+        return self._departure_identity() if switch.state == "on" else None
+
+    def _observation(self):
+        return {
+            "switch": self._state("switch_entity"), "power": self._state("power_entity"),
+            "energy": self._state("energy_entity"), "price": self._state("energy_price_entity"),
+            "temperature": self._state("temperature_entity"), "observed_at": dt_util.utcnow().isoformat(),
+        }
+
     async def async_start(self):
         from homeassistant.helpers.event import async_track_state_change_event
 
@@ -728,16 +746,9 @@ class EnergyMonitor:
                 # Capture all three states at the instant of this event. A
                 # rapid on -> energy update -> off must keep its real start
                 # and stop readings even while notification I/O holds the lock.
-                snapshot = {"switch": self.hass.states.get(self.config.get("switch_entity")),
-                            "power": self.hass.states.get(self.config.get("power_entity")),
-                            "energy": self.hass.states.get(self.config.get("energy_entity")),
-                            "price": self.hass.states.get(self.config.get("energy_price_entity")),
-                            "temperature": self.hass.states.get(self.config.get("temperature_entity")),
-                            "observed_at": dt_util.utcnow().isoformat(),
-                            "switch_event": switch_event,
-                            "power_event": entity == self.config.get("power_entity"),
-                            "power_epoch": self._power_epoch,
-                            "deviation_event_epoch": self._deviation_event_epoch}
+                snapshot = self._observation()
+                snapshot.update(switch_event=switch_event, power_event=entity == self.config.get("power_entity"),
+                                power_epoch=self._power_epoch, deviation_event_epoch=self._deviation_event_epoch)
                 if switch_event:
                     snapshot["switch"] = new_state
                 elif entity == self.config.get("power_entity"):
@@ -746,16 +757,13 @@ class EnergyMonitor:
                     snapshot["energy"] = new_state
                 elif entity == self.config.get("energy_price_entity"):
                     snapshot["price"] = new_state
+                snapshot["departure_identity"] = self._current_departure(snapshot["switch"])
                 self._queue_update(snapshot)
 
         self._unsub = async_track_state_change_event(self.hass, [entity for entity in entities if entity], changed)
         # Do not delay the heater scheduler on storage or notification I/O.
-        initial = {"switch": self.hass.states.get(self.config.get("switch_entity")),
-                   "power": self.hass.states.get(self.config.get("power_entity")),
-                   "energy": self.hass.states.get(self.config.get("energy_entity")),
-                   "price": self.hass.states.get(self.config.get("energy_price_entity")),
-                   "temperature": self.hass.states.get(self.config.get("temperature_entity")),
-                   "observed_at": dt_util.utcnow().isoformat(), "initial": True}
+        initial = self._observation()
+        initial.update(initial=True, departure_identity=self._current_departure(initial["switch"]))
         self._queue_update(initial)
 
     def _queue_update(self, snapshot):
@@ -787,7 +795,11 @@ class EnergyMonitor:
         await self.async_update(force=True)
 
     async def _save(self):
+        # Retain retry state until the atomic storage write has succeeded.
+        self._dirty = self._urgent_save = True
         await self.store.async_save(self._snapshot())
+        self._dirty = self._urgent_save = False
+        self._next_checkpoint = time.monotonic() + _CHECKPOINT_SECONDS
 
     @staticmethod
     def _changed_at(state):
@@ -857,6 +869,8 @@ class EnergyMonitor:
             item["temperature_at_start_c"] = self._history_temperature_at_start
         if self._history_source:
             item.update(self._history_source)
+        if complete and self._history_departure:
+            item["departure_uid"], item["departure_time"] = self._history_departure
         if self.cost_configured:
             energy = item["energy_kwh"]
             if self._integrate_power and self.config.get("energy_price_entity"):
@@ -879,6 +893,7 @@ class EnergyMonitor:
         self._history_start = None
         self._history_temperature_at_start = None
         self._history_source = None
+        self._history_departure = None
         self._history_time_complete = False
 
     async def async_update(self, snapshot=None, force=False):
@@ -897,12 +912,17 @@ class EnergyMonitor:
             meter = (_read_number(snapshot.get("energy"), _ENERGY_UNITS, cumulative=True)
                      if snapshot is not None and self.energy_configured
                      else self.energy_meter_kwh)
-            power_state = snapshot.get("power") if snapshot is not None else self.hass.states.get(self.config.get("power_entity"))
+            power_state = snapshot.get("power") if snapshot is not None else self._state("power_entity")
             power = _read_number(power_state, _POWER_UNITS) if self.power_configured else None
             price_state = (snapshot.get("price") if snapshot is not None and "price" in snapshot
-                           else self.hass.states.get(self.config.get("energy_price_entity")))
+                           else self._state("energy_price_entity"))
             price = _read_price(price_state, self.config.get("energy_currency", "SEK")) if self.config.get("energy_price_entity") else None
             changed = False
+            urgent = False
+            identity = (snapshot.get("departure_identity") if snapshot is not None
+                        else self._current_departure(switch))
+            if self._history_departure != identity:
+                self._history_departure = None
             if on:
                 if self._restored_session and self._active_power_samples:
                     # Nothing during Home Assistant downtime is observed. End
@@ -913,6 +933,7 @@ class EnergyMonitor:
                 # while HA was unavailable; do not reuse an old baseline.
                 new_session = not self._session_active or (changed_at and self._switch_changed and changed_at != self._switch_changed)
                 if new_session:
+                    urgent = True
                     was_active = self._session_active
                     if not was_active:
                         self._active_power_samples = []
@@ -923,6 +944,8 @@ class EnergyMonitor:
                     # Only a genuinely observed off->on starts low-power
                     # checks. Unknown/reloaded sessions cannot be certified.
                     self._startup_started = observed if saw_off_before and not was_active else None
+                    self._startup_sample_seen = False
+                    self._history_departure = identity if self._startup_started is not None else None
                     self._low_start_deadline = (self._startup_started + timedelta(minutes=self._delay() + 5)
                                                 if self._startup_started else None)
                     self._deviation_low_deadline = (self._startup_started + timedelta(minutes=self._deviation_delay() + 5)
@@ -962,7 +985,7 @@ class EnergyMonitor:
                         self._history_start = (changed_at or observed_at) if saw_off_before else None
                         self._history_time_complete = self._history_start is not None
                         temp_state = (snapshot.get("temperature") if snapshot is not None and "temperature" in snapshot
-                                      else self.hass.states.get(self.config.get("temperature_entity")))
+                                      else self._state("temperature_entity"))
                         self._history_temperature_at_start = _read_temperature_c(temp_state) if saw_off_before else None
                         if self.energy_configured and saw_off_before:
                             source_key = "power_entity" if self._integrate_power else "energy_entity"
@@ -992,24 +1015,33 @@ class EnergyMonitor:
                         self._session_energy = None
                         changed = True
                     else:
+                        changed |= self._last_meter != meter
                         self._last_meter = meter
                         self._session_energy = max(0.0, meter - self._baseline)
                 now = dt_util.utcnow()
                 observed = self._history_datetime(observed_at)
                 fresh = self._startup_power_fresh(power_state, snapshot, observed)
+                if power is None:
+                    self._startup_sample_seen = False
+                elif fresh:
+                    self._startup_sample_seen = True
+                # A plug can deliver adequate load just before its switch event.
+                # This tolerance can rule out a cable alert but never cause one.
+                recent_enough_to_close = fresh or self._startup_power_fresh(
+                    power_state, snapshot, observed, tolerance=timedelta(seconds=5))
                 # Once a fresh adequate value has arrived, later low readings
                 # (for example a disconnected car) cannot start a new alert.
                 if (not self._low_start_open(self._low_start_deadline, now)
-                        or (fresh and power is not None and power >= self._threshold())):
+                        or (recent_enough_to_close and power is not None and power >= self._threshold())):
                     self._low_start_deadline = None
                 normal_min = _finite_number(self.config.get("power_expected_min_watts"))
                 if (not self._low_start_open(self._deviation_low_deadline, now)
-                        or (fresh and power is not None and normal_min is not None
+                        or (recent_enough_to_close and power is not None and normal_min is not None
                             and normal_min >= 0 and power >= normal_min)):
                     self._deviation_low_deadline = None
                 current_low_snapshot = snapshot is None or snapshot.get("power_epoch", self._power_epoch) == self._power_epoch
                 if (not self._stopped and self.config.get("power_alarm_enabled", True)
-                        and self.power_configured and self._low_start_deadline is not None
+                        and self.power_configured and self._startup_sample_seen and self._low_start_deadline is not None
                         and current_low_snapshot and power is not None and power < self._threshold()):
                     if self._low_since is None:
                         self._low_since = observed or now
@@ -1023,7 +1055,7 @@ class EnergyMonitor:
                     self._low_since = None
                     self.alarm_active = False
                 direction = self._deviation_for_power(power) if not self._stopped and not self._stopping else None
-                if direction == "low" and self._deviation_low_deadline is None:
+                if direction == "low" and (not self._startup_sample_seen or self._deviation_low_deadline is None):
                     direction = None
                 if snapshot is not None and snapshot.get("deviation_event_epoch", self._deviation_event_epoch) != self._deviation_event_epoch:
                     direction = None
@@ -1047,6 +1079,7 @@ class EnergyMonitor:
                 self._saw_off = True
                 self._startup_started = self._low_start_deadline = self._deviation_low_deadline = None
                 if self._session_active:
+                    urgent = True
                     if self._integrate_power and not self._invalid:
                         self._integrate_power_until(observed_at, power, price)
                     if not self._integrate_power and self.energy_configured and meter is None:
@@ -1100,7 +1133,8 @@ class EnergyMonitor:
                 self.deviation_alarm_active = False
             self._observed_switch = "on" if on else "off" if off else "unknown"
             self._restored_session = False
-            if changed:
+            self._dirty |= changed
+            if self._dirty and (urgent or force or self._urgent_save or time.monotonic() >= self._next_checkpoint):
                 await self._save()
         self._notify()
 

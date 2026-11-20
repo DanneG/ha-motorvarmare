@@ -85,7 +85,8 @@ async function main() {
     assert.match(await card.locator('.summary-metrics').innerText(),/Efter avresa\s*30 min/);
     // Overlap must include the extra 30 minutes after the first departure.
     await page.evaluate(()=>{const c=document.querySelector('motorvarmare-card');c._windowEvents.push({departure:'2026-11-20T10:15:00Z',source:'Kalender'});c.hass={...window.hass};});
-    assert.match(await card.locator('.calendar-subtitle').innerText(),/Överlappande tider/);
+    await card.locator('.schedule-details summary').click();
+    assert.match(await card.locator('.schedule-details').innerText(),/Överlappande tider/);
     // Render intervals crossing both the beginning and end of the displayed week.
     await page.evaluate(()=>{const c=document.querySelector('motorvarmare-card');c._windowEvents=[{departure:'2026-11-18T22:45:00Z',source:'Planerad',uid:'overnight',removable:true},{departure:'2026-11-25T22:45:00Z',source:'Planerad'}];c.hass={...window.hass};});
     assert.equal(await card.locator('[data-departure="2026-11-18T22:45:00Z"][data-segment-day="2026-11-19"].heating-event').count(),1);
@@ -143,10 +144,12 @@ async function main() {
     await card.locator('.mobile-remove').click();
     assert.match(await card.locator('.cal-editor').innerText(),/hela serien/i);
     await card.locator('#delete-one').click();
+    await card.locator('#commit-removal').click();
     assert.deepEqual((await page.evaluate(()=>window.calls.shift())).ws,{type:'calendar/event/delete',entity_id:'calendar.car',uid:'series',recurrence_id:'2026-11-06T08:00:00+00:00'});
     await page.waitForFunction(()=>!document.querySelector('motorvarmare-card').shadowRoot.querySelector('.mobile-remove'));
     await page.evaluate(async()=>{window.calls=[];window.serverEvents=window.hass.states['sensor.status'].attributes.schedule_7_days;await document.querySelector('motorvarmare-card')._loadCalendarWindow(true);window.calls=[];});
     await card.locator('.mobile-remove').click();await card.locator('#delete-series').click();
+    await card.locator('#commit-removal').click();
     assert.deepEqual((await page.evaluate(()=>window.calls.shift())).ws,{type:'calendar/event/delete',entity_id:'calendar.car',uid:'series'});
     // Aggregates distinguish missing measurements and incomplete periods.
     await card.locator('[data-main-tab="energy"]').click();

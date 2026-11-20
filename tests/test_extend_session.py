@@ -39,7 +39,7 @@ class ExtendSessionTests(unittest.TestCase):
         self.assertEqual(self.hass.states['switch.heater'].state, 'off')
 
     @mocks.sync_test
-    async def test_scheduled_extension_continues_after_departure_cleanup(self):
+    async def test_scheduled_extension_continues_after_departure(self):
         departure = self.now + timedelta(minutes=10)
         await self.item.async_add_local_departure(departure)
         await self.item.async_extend_30()
@@ -47,7 +47,8 @@ class ExtendSessionTests(unittest.TestCase):
         self.now = departure + timedelta(minutes=5)
         await self.item.async_update()
         self.assertTrue(self.item.owned)
-        self.assertEqual(self.item.local_departures, [])
+        self.assertIsNone(self.item.next_departure)
+        self.assertEqual(self.item.local_departures[0]["departure"], departure)
         self.now = departure + timedelta(minutes=30)
         await self.item.async_update()
         self.assertFalse(self.item.owned)

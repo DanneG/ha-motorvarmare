@@ -13,7 +13,7 @@ English · [Svenska](docs/README.sv.md)
 
 Schedule an electric engine heater using the outdoor temperature and a departure time. Each car has its own Home Assistant-compatible smart plug or switch and departure schedule. Configuration, entities and the companion dashboard card support English and Swedish.
 
-![Motorvärmare dashboard card with an active heating session and calendar, shown with fictional example data](docs/demo-card-en.png)
+![Active heating session showing remaining time, stop and extend buttons above the power graph, and the departure calendar. Fictional example data.](docs/demo-card-en.png)
 
 ## Installation
 
@@ -53,7 +53,13 @@ For resources managed by Home Assistant, the integration migrates recognized old
 
 For resources configured in YAML, replace the old card's resource URL with the integrated URL shown above and restart Home Assistant. Keep only one Motorvärmare card resource: loading the old and new JavaScript together can cause the older card to be used. If you used a different custom URL, remove that old resource manually, reload the browser and check that the integrated card loads.
 
+For a dashboard with two cars, add **Motorvärmare – översikt / Engine heaters**, select the two status sensors, and choose **Responsive car cards**. The layout shows two columns when the card has enough space and stacks the cars on a phone. To convert an existing fixed horizontal stack, replace it with this single card and select the same cars. Choose **Compact list** for a summary with tap-through details.
+
 ## Departures and calendar
+
+The expanded calendar opens on the selected day on a phone and shows the week on a larger screen. Switch between Day and Week or use the arrows to browse, including up to 31 days back. Both add buttons use the selected day. Removing a departure gives you 10 seconds to undo or confirm immediately. Leaving the card during this period cancels the pending removal.
+
+Local one-time departures are retained for 31 days. When a new completed session can be tied to a single departure, its measured duration and available energy and cost appear with it. Older sessions and sessions with overlapping departures remain in heating history.
 
 The card shows seven local calendar days at a time and can browse forward, with departures and estimated heater start and stop times. Start times are **estimates** and can change as the temperature changes. Departures may come from the weekly schedule, Google Calendar, or the integration's own calendar.
 

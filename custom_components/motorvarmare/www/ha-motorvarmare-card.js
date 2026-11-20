@@ -26,6 +26,8 @@ MV_I18N.sv.eventSummary = "Avresa"; MV_I18N.en.eventSummary = "Departure";
 MV_I18N.sv.estimate = "Individuellt beräknade tider utifrån aktuell utetemperatur. Tiderna kan ändras när temperaturen ändras.";
 MV_I18N.en.estimate = "Individual estimates based on the current outdoor temperature. Times can change with temperature.";
 MV_I18N.sv.overlap = "Överlappande tider kan gå ihop. En säkerhetsgräns på fyra timmar gäller för en sammanhängande körning.";
+Object.assign(MV_I18N.sv,{newDeparture:"Ny avresa",calendarDay:"Dag",calendarWeek:"Vecka",previousDay:"Föregående dag",nextDay:"Nästa dag",scheduleDetails:"Visa detaljer",undo:"Ångra",removeNow:"Ta bort nu",removalPending:"Avresan tas bort efter 10 sekunder om sidan är öppen.",seriesRemovalPending:"Serien tas bort efter 10 sekunder om sidan är öppen.",recorded:"Registrerad värmning"});
+Object.assign(MV_I18N.en,{newDeparture:"New departure",calendarDay:"Day",calendarWeek:"Week",previousDay:"Previous day",nextDay:"Next day",scheduleDetails:"Show details",undo:"Undo",removeNow:"Remove now",removalPending:"Departure will be removed after 10 seconds if this page stays open.",seriesRemovalPending:"Series will be removed after 10 seconds if this page stays open.",recorded:"Recorded heating"});
 MV_I18N.en.overlap = "Overlapping times may run together. A four-hour safety limit applies to a continuous session.";
 MV_I18N.sv.runtimeFor = "Värmer i"; MV_I18N.en.runtimeFor = "Heats for";
 MV_I18N.sv.runtimeOff = "stängs sedan av automatiskt."; MV_I18N.en.runtimeOff = "then turns off automatically.";
@@ -263,7 +265,7 @@ class MotorvarmareCard extends HTMLElement {
       this._resizeObserver.observe(this);
     }
   }
-  disconnectedCallback() { this._resizeObserver?.disconnect(); this._resizeObserver=null; clearInterval(this._transitionTimer); this._transitionTimer=null; }
+  disconnectedCallback() { this._cancelRemoval(); this._resizeObserver?.disconnect(); this._resizeObserver=null; clearInterval(this._transitionTimer); this._transitionTimer=null; }
   static getConfigElement() { return document.createElement("motorvarmare-card-editor"); }
   static getStubConfig() { return {title:"Motorvärmare"}; }
   getCardSize() { return this._showWeek ? 8 : 4; }
@@ -271,6 +273,7 @@ class MotorvarmareCard extends HTMLElement {
   setConfig(config) {
     if (!config || typeof config !== "object") throw new Error("Ogiltig konfiguration");
     if (this._config.status_entity !== config.status_entity) {
+      this._cancelRemoval();
       this._draft = null; this._selectedDay = null; this._editChoice=null; this._editContext=null; this._initialCalendarScroll = null;
       this._calendarAnchored = false; this._calendarUserScrolled = false; this._desktopPosition = null;
       this._mobileDay = null; this._mobileDayChosen = false; this._showHistory = true; this._historyLimit = 10;
@@ -476,13 +479,56 @@ class MotorvarmareCard extends HTMLElement {
     }
     this._render();
   }
-  _changeCalendarWindow(delta) {
-    this._windowOffset=delta === null ? 0 : Math.max(0,this._windowOffset+delta);
-    this._selectedDay=null; this._editChoice=null; this._editContext=null; this._deleteRecurrence=null; this._mobileDayChosen=false; this._mobileDay=null;
+  _changeCalendarDay(delta) {
+    const keys=this._dayKeys();
+    const index=keys.indexOf(this._mobileDay) + delta;
+    if (index < 0 && this._windowOffset<=-31) return;
+    if (index < 0 || index >= keys.length) {
+      const nextDate=new Date(Date.parse(this._mobileDay+"T12:00:00Z")+delta*86400000).toISOString().slice(0,10);
+      this._changeCalendarWindow(index < 0 ? -7 : 7, nextDate);
+      return;
+    }
+    this._mobileDay = keys[index];
+    this._mobileDayChosen = true;
+    this._render();
+  }
+  _changeCalendarWindow(delta, selectedDay=null) {
+    // Keep normal weeks anchored to today when returning from the short
+    // oldest window (-31 overlaps -28 by four days).
+    this._windowOffset=delta===null ? 0 : this._windowOffset===-31 && delta===7
+      ? -28 : Math.max(-31,this._windowOffset+delta);
+    this._selectedDay=null; this._editChoice=null; this._editContext=null; this._deleteRecurrence=null; this._mobileDayChosen=selectedDay!==null; this._mobileDay=selectedDay;
     this._windowEvents=null; this._windowError=null; this._windowUnsupported=false; this._windowCalendarError=false; this._windowOverride=false; this._todayBaseSignature=null;
     if (this._windowOffset) this._loadCalendarWindow();
     else if (this._hass?.states?.[this._config.status_entity]?.attributes?.weather_enabled) this._loadCalendarWindow(true);
     else { this._windowRequest++; this._windowLoading=false; this._render(); }
+  }
+  _cancelRemoval() {
+    if (this._removal) clearTimeout(this._removal.timer);
+    this._removal=null;
+  }
+  _queueRemoval(message, series=false) {
+    if (this._removal) return;
+    this._deleteRecurrence=null;
+    this._removal={message,series};
+    this._removal.timer=setTimeout(()=>this._commitRemoval(),10000);
+    this._render();
+    this.shadowRoot.querySelector("#undo-removal")?.focus({preventScroll:true});
+  }
+  async _commitRemoval() {
+    const removal=this._removal;
+    if (!removal || removal.committing) return;
+    clearTimeout(removal.timer);
+    removal.committing=true;
+    this._render();
+    try {
+      await this._hass.callWS(removal.message);
+      if (this._removal===removal) await this._loadCalendarWindow(true);
+    } catch (err) {
+      if (this._removal===removal) this._actionError=mvErrorText(this._hass, err?.message) || mvText(this._hass,"actionError");
+    } finally {
+      if (this._removal===removal) { this._removal=null; this._render(); }
+    }
   }
   _renderUnlessEditing() {
     const focused=this.shadowRoot.activeElement;
@@ -657,12 +703,17 @@ class MotorvarmareCard extends HTMLElement {
     const chartStart=Number.isFinite(startMsActive) ? startMsActive : NaN;
     const chart=activeTimeValid && chartStart<=activeNowMs ? this._activeGraph(a.active_power_samples,chartStart,axisEndActive,activeNowMs,endMsActive) : `<div class="active-graph-empty">${t("powerGraphEmpty")}</div>`;
     const graph=showPower ? `<div class="active-graph-section"><button id="active-graph-toggle" class="active-graph-toggle" aria-expanded="${this._showPowerGraph}"><span>${t("powerGraph")}</span><span>${this._showPowerGraph ? t("hide") : t("show")} ${this._showPowerGraph ? "⌃" : "⌄"}</span></button>${this._showPowerGraph ? `${chart}<div class="hint active-graph-hint">${t("powerGraphGap")}</div>` : ""}</div>` : `<div class="hint active-no-sensor">${t("powerGraphMissing")}</div>`;
-    const activeControl=active ? `<div class="active-header"><div class="sectionhead">${t("activeHeating")}</div><span class="active-live"><i></i>${t("on")}</span></div><div class="active-remaining">${mvEscape(activeRemaining)}</div>${activeTimeline}${graph}${activeMetrics}<div class="quick-actions active-actions"><button id="stop-now" ${!stopOk || this._pending ? "disabled" : ""}>${t("stopNow")}</button>${e.extend_30 ? extend : ""}${!activeTimeValid && Number.isFinite(endMsActive) ? `<span class="hint">${t("plannedStop")} ${mvEscape(this._date(a.active_until))}</span>` : ""}</div>${e.extend_30 && a.can_extend === false && remainingExtension!==null && remainingExtension<=0 ? `<div class="hint active-limit">${t("extendLimit")}</div>` : e.extend_30 && a.can_extend === true && remainingExtension!==null && remainingExtension<30 ? `<div class="hint active-limit">${t("maximumStop")} ${mvEscape(this._clock(a.active_max_until,currentDay))}.</div>` : ""}` : "";
+    const activeMilestones = [
+      a.active_scheduled_departure && `${t("timelineDeparture")} ${activeClock(a.active_scheduled_departure)}`,
+      Number.isFinite(endMsActive) && `${t("timelineStop")} ${activeClock(a.active_until)}`,
+    ].filter(Boolean).map(mvEscape).join(" · ");
+    const activeActions = `<div class="quick-actions active-actions"><button id="stop-now" ${!stopOk || this._pending ? "disabled" : ""}>${t("stopNow")}</button>${e.extend_30 ? extend : ""}</div>`;
+    const activeControl=active ? `<div class="active-header"><div class="sectionhead">${t("activeHeating")}</div><span class="active-live"><i></i>${t("on")}</span></div><div class="active-remaining">${mvEscape(activeRemaining)}</div>${activeMilestones ? `<div class="active-milestones">${activeMilestones}</div>` : ""}${activeActions}${e.extend_30 && a.can_extend === false && remainingExtension!==null && remainingExtension<=0 ? `<div class="hint active-limit">${t("extendLimit")}</div>` : e.extend_30 && a.can_extend === true && remainingExtension!==null && remainingExtension<30 ? `<div class="hint active-limit">${t("maximumStop")} ${mvEscape(this._clock(a.active_max_until,currentDay))}.</div>` : ""}${activeTimeline}${graph}${activeMetrics}` : "";
     const calendar = h.states[e.calendar];
     const calendarOk = mvUsable(status) && calendar && calendar.state !== "unavailable";
     const windowData=mvUsable(status) ? ((this._windowOffset || this._windowOverride) ? this._windowEvents : a.schedule_7_days) : null;
     const hasSchedule = Array.isArray(windowData);
-    const schedule = hasSchedule ? windowData.filter(item => item && item.departure && !Number.isNaN(new Date(item.departure).getTime())).map(item=>{
+    const schedule = hasSchedule ? windowData.filter(item => item && !(this._removal && item.uid===this._removal.message.uid && (!this._removal.message.recurrence_id || this._removal.message.recurrence_id===item.recurrence_id)) && item.departure && !Number.isNaN(new Date(item.departure).getTime())).map(item=>{
       if (!this._windowOffset && !this._windowOverride) return item;
       if (item.temperature_source === "forecast") return {...item,start:a.temperature_blocked === true ? null : item.start};
       // Future estimates follow the latest temperature even while viewing a week.
@@ -676,6 +727,24 @@ class MotorvarmareCard extends HTMLElement {
     const history=historyAvailable ? a.heating_history.filter(item=>item && typeof item==="object") : [];
     const now = Date.now();
     const departurePassed = item => new Date(item.departure).getTime() <= now;
+    // Older history has no scheduling identity. A matching clock time alone
+    // cannot distinguish overlapping sessions, or an externally powered plug.
+    const recordedByDeparture=new Map();
+    const departureKey=(uid,value)=>uid && value && Number.isFinite(Date.parse(value)) ? JSON.stringify([uid,Date.parse(value)]) : null;
+    for (const row of history) {
+      const key=departureKey(row.departure_uid,row.departure_time);
+      if (key) recordedByDeparture.set(key,recordedByDeparture.has(key) ? null : row);
+    }
+    const recordedHeating=item=>{
+      const row=recordedByDeparture.get(departureKey(item.uid,item.departure));
+      if (!row || !departurePassed(item)) return "";
+      const metrics=[];
+      if (row.complete && Number.isFinite(row.duration_minutes) && row.duration_minutes>=0) metrics.push(mvDuration(h,row.duration_minutes));
+      if (Number.isFinite(row.energy_kwh) && row.energy_kwh>=0) metrics.push(new Intl.NumberFormat(metricLocale,{minimumFractionDigits:2,maximumFractionDigits:3}).format(row.energy_kwh)+" kWh");
+      const cost=formatCost(row.estimated_cost,row.cost_currency);
+      if (cost) metrics.push(cost);
+      return metrics.length ? t("recorded")+" · "+metrics.join(" · ") : "";
+    };
     const displaySource = item => `${departurePassed(item) ? `${t("departurePassed")} · ${t("calendarSource")}: ` : ""}${mvStateText(h,String(item.source || "Planerad"))}`;
     // A stop after departure is only meaningful for an actual heating window.
     // These are estimates, so they do not establish that the heater ran.
@@ -746,10 +815,14 @@ class MotorvarmareCard extends HTMLElement {
     const anchorSegment = anchorItem && segments.find(s => s.item === anchorItem);
     if (!dayKeys.includes(this._mobileDay)) { this._mobileDay = null; this._mobileDayChosen = false; }
     if (!this._mobileDayChosen) this._mobileDay = anchorSegment?.key || dayKeys[0];
+    const dayView=this._calendarExpanded && this._calendarMode==="day";
+    const visibleDays=dayView ? [this._mobileDay] : dayKeys;
+    const todayDateKey=this._dayKey(new Date().toISOString());
+    const canAddOn=key=>calendarOk && !this._pending && key>=todayDateKey;
     const firstHour=0, lastHour=24;
     const gridHeight=(lastHour-firstHour)*hourHeight;
     const rows=Array.from({length:lastHour-firstHour+1},(_,i)=>`<div class="cal-hour" style="top:${i*hourHeight}px">${String(firstHour+i).padStart(2,"0")}:00</div>`).join("");
-    const dayRows = dayKeys.map((key,i) => {
+    const dayRows = visibleDays.map((key,i) => {
       const items=segments.filter(s=>s.key===key).map(s=>({...s,top:Math.max(0,Math.min(gridHeight,(s.from-firstHour*60)*hourHeight/60)),height:s.heat ? Math.max(1,(s.to-s.from)*hourHeight/60) : 24})).sort((a,b)=>a.top-b.top);
       // Assign lanes to visually overlapping blocks, including minimum-height
       // blocks, so each remains readable and independently removable.
@@ -765,32 +838,34 @@ class MotorvarmareCard extends HTMLElement {
         const title = this._calendarExpanded && typeof item.summary === "string" && item.summary.trim() ? `${item.summary.trim()} · ` : "";
         const source = `${title}${displaySource(item)}${temperatureDetail(item)}`;
         const timing = item.suppressed ? `${t("suppressed")} · ${t("depShort")} ${this._clock(item.departure,key)}` : endOnly ? `${t(hasExtendedStop(item) ? "stopShort" : "depShort")} ${this._clock(stopTime(item),key)}` : heat ? heatTiming(item,key) : `${item.duration_minutes === 0 ? t("noHeat") : t("missingStart")} · ${t("depShort")} ${this._clock(item.departure,key)}`;
-        const remove = key === this._dayKey(item.departure) && item.removable === true && item.uid && calendarOk ? `<button class="remove" data-remove-uid="${mvEscape(item.uid)}" ${item.recurrence_id ? `data-recurrence-id="${mvEscape(item.recurrence_id)}"` : ""} aria-label="${t("removeDeparture")} ${mvEscape(this._clock(item.departure,key))}" title="${t("removeDeparture")}">×</button>` : "";
+        const remove = height >= 48 && key === this._dayKey(item.departure) && item.removable === true && item.uid && calendarOk ? `<button class="remove" data-remove-uid="${mvEscape(item.uid)}" ${item.recurrence_id ? `data-recurrence-id="${mvEscape(item.recurrence_id)}"` : ""} aria-label="${t("removeDeparture")} ${mvEscape(this._clock(item.departure,key))}" title="${t("removeDeparture")}">×</button>` : "";
         const end=stopTime(item), ambiguous=heat && (wallClockReverses(item.start,item.departure) || wallClockReverses(item.departure,end) || wallClockReverses(item.start,end));
         const gridTiming=this._calendarExpanded && heat && !endOnly && !item.suppressed ? `${this._clock(item.start,key,ambiguous)}–${this._clock(end,key,ambiguous)}` : timing;
-        const eventText=`<div class="cal-timing">${mvEscape(gridTiming)}</div><div class="cal-source">${mvEscape(source)}</div>`;
+        const recorded=recordedHeating(item);
+        const eventText=`<div class="cal-timing">${mvEscape(gridTiming)}</div><div class="cal-source">${mvEscape(source)}</div>${recorded ? `<div class="cal-source">${mvEscape(recorded)}</div>` : ""}`;
         const content=this._calendarExpanded && item.removable === true && item.uid && calendarOk ? `<button type="button" class="cal-event-text" data-edit-index="${schedule.indexOf(item)}" aria-label="${mvEscape(`${t("edit")} ${this._date(item.departure)} · ${timing}`)}" title="${t("edit")}">${eventText}</button>` : `<div class="cal-event-text">${eventText}</div>`;
         return `<div class="cal-event cal-entry ${heat ? "heating-event" : "marker-event"} ${completed(item) ? "is-past" : ""}" data-departure="${mvEscape(item.departure)}" data-segment-day="${key}" style="top:${top}px;height:${Math.min(height,gridHeight-top)}px;left:calc(${lane*100/lanes}% + 2px);width:calc(${100/lanes}% - 4px)" aria-label="${mvEscape(`${timing} · ${source}`)}" title="${mvEscape(`${timing} · ${source}`)}">${content}${remove}</div>`;
       }).join("");
       const dayDate=new Date(`${key}T12:00:00Z`), locale=mvLang(h)==="sv" ? "sv-SE" : "en-GB";
       const weekday=new Intl.DateTimeFormat(locale,{timeZone:"UTC",weekday:"short"}).format(dayDate);
-      return `<div class="cal-day"><div class="cal-day-head"><div class="cal-weekday">${mvEscape(weekday)}</div><div class="cal-date ${key===this._dayKey(new Date().toISOString()) ? "is-today" : ""}">${dayDate.getUTCDate()}</div><button class="add-day" data-add-day="${key}" aria-label="${t("addDay")} ${mvEscape(this._dayLabel(key,i))}" title="${t("addDay")}" ${!calendarOk || this._pending ? "disabled" : ""}>＋</button></div><div class="cal-column" data-grid-day="${key}" data-first-hour="${firstHour}" style="height:${gridHeight}px">${entries}</div></div>`;
+      return `<div class="cal-day"><div class="cal-day-head"><div class="cal-weekday">${mvEscape(weekday)}</div><div class="cal-date ${key===this._dayKey(new Date().toISOString()) ? "is-today" : ""}">${dayDate.getUTCDate()}</div><button class="add-day" data-add-day="${key}" aria-label="${t("addDay")} ${mvEscape(this._dayLabel(key,i))}" title="${t("addDay")}" ${!canAddOn(key) ? "disabled" : ""}>＋</button></div><div class="cal-column" data-grid-day="${key}" data-first-hour="${firstHour}" style="height:${gridHeight}px">${entries}</div></div>`;
     }).join("");
     const repeatOptions=[["NONE",t("once")],["DAILY",t("daily")],["WEEKLY",t("weeklyRepeat")],["MONTHLY",t("monthly")],["YEARLY",t("yearly")]];
     const weekdayCodes=["MO","TU","WE","TH","FR","SA","SU"];
     const weekdayInputs=weekdayCodes.map((code,i)=>`<label class="repeat-day"><input type="checkbox" data-repeat-day="${code}" ${this._repeatDays.includes(code) ? "checked" : ""}>${mvEscape(days[i].slice(0,3))}</label>`).join("");
     const repeatFields=this._repeatFreq !== "NONE" ? `<label for="repeat-interval">${t("every")}</label><input id="repeat-interval" type="number" min="1" max="99" step="1" value="${mvEscape(this._repeatInterval)}">${this._repeatFreq === "WEEKLY" ? `<fieldset class="repeat-days"><legend>${t("repeatOn")}</legend>${weekdayInputs}</fieldset>` : ""}<label for="repeat-until">${t("until")}</label><input id="repeat-until" type="date" min="${mvEscape(this._editDate)}" value="${mvEscape(this._repeatUntil)}">` : "";
     const canRepeat=!this._editContext || !this._editContext.occurrence;
-    const calendarEditor=dayKeys.includes(this._selectedDay) ? `<div class="cal-editor calendar-form"><strong>${this._editContext ? t("editDeparture") : t("addDay")}</strong><label for="calendar-date">${t("editDate")}</label><input id="calendar-date" type="date" value="${mvEscape(this._editDate)}"><label for="calendar-time">${t("depTime")}</label><input id="calendar-time" type="time" value="${mvEscape(this._calendarTime)}" ${this._pending ? "disabled" : ""}><label for="calendar-summary">${t("editTitle")}</label><input id="calendar-summary" type="text" value="${mvEscape(this._editSummary)}" placeholder="${t("eventSummary")}">${canRepeat ? `<label for="repeat-frequency">${t("recurrence")}</label><select id="repeat-frequency">${repeatOptions.map(([key,label])=>`<option value="${key}" ${key===this._repeatFreq ? "selected" : ""}>${label}</option>`).join("")}</select>${repeatFields}` : ""}${this._editContext?.series ? `<div class="series-warning">${t("seriesWarning")}</div><label class="series-confirm"><input id="confirm-series-change" type="checkbox" ${this._editAcknowledged ? "checked" : ""}>${t("seriesConfirm")}</label>` : ""}<button class="primary" id="add-calendar" ${!calendarOk || this._pending ? "disabled" : ""}>${this._editContext ? t("save") : t("add")}</button><button id="cancel-calendar" ${this._pending ? "disabled" : ""}>${t("cancel")}</button></div>` : "";
+    const calendarEditor=dayKeys.includes(this._selectedDay) ? `<div class="cal-editor calendar-form"><strong id="calendar-editor-title">${this._editContext ? t("editDeparture") : t("newDeparture")}${this._editDate ? " · "+mvEscape(this._dayLabel(this._editDate)) : ""}</strong><label for="calendar-date">${t("editDate")}</label><input id="calendar-date" type="date" value="${mvEscape(this._editDate)}"><label for="calendar-time">${t("depTime")}</label><input id="calendar-time" type="time" value="${mvEscape(this._calendarTime)}" ${this._pending ? "disabled" : ""}><label for="calendar-summary">${t("editTitle")}</label><input id="calendar-summary" type="text" value="${mvEscape(this._editSummary)}" placeholder="${t("eventSummary")}">${canRepeat ? `<label for="repeat-frequency">${t("recurrence")}</label><select id="repeat-frequency">${repeatOptions.map(([key,label])=>`<option value="${key}" ${key===this._repeatFreq ? "selected" : ""}>${label}</option>`).join("")}</select>${repeatFields}` : ""}${this._editContext?.series ? `<div class="series-warning">${t("seriesWarning")}</div><label class="series-confirm"><input id="confirm-series-change" type="checkbox" ${this._editAcknowledged ? "checked" : ""}>${t("seriesConfirm")}</label>` : ""}<button class="primary" id="add-calendar" ${!calendarOk || this._pending ? "disabled" : ""}>${this._editContext ? t("save") : t("add")}</button><button id="cancel-calendar" ${this._pending ? "disabled" : ""}>${t("cancel")}</button></div>` : "";
     const deleteEditor=this._deleteRecurrence ? `<div class="cal-editor" role="group" aria-label="${t("deleteChoice")}"><strong>${t("deleteChoice")}</strong><button id="delete-one">${t("deleteOne")}</button><button id="delete-series">${t("deleteSeries")}</button><button id="delete-cancel">${t("cancel")}</button></div>` : "";
     const editEditor=this._editChoice ? `<div class="cal-editor" role="group" aria-label="${t("editChoice")}"><strong>${t("editChoice")}</strong><button id="edit-one">${t("deleteOne")}</button><button id="edit-series">${t("deleteSeries")}</button><button id="edit-cancel">${t("cancel")}</button></div>` : "";
-    const agendaRows=schedule.filter(item=>dayKeys.includes(this._dayKey(item.departure))).map(item=>{
+    const agendaRows=schedule.filter(item=>visibleDays.includes(this._dayKey(item.departure))).map(item=>{
       const key=this._dayKey(item.departure), date=this._date(item.departure);
       const state=item.suppressed ? t("suppressed") : item.start ? heatTiming(item,key) : item.duration_minutes===0 ? t("noHeat") : t("missingStart");
       const source=`${displaySource(item)}${temperatureDetail(item)}`;
       const remove=item.removable === true && item.uid && calendarOk ? `<button class="remove" data-remove-uid="${mvEscape(item.uid)}" ${item.recurrence_id ? `data-recurrence-id="${mvEscape(item.recurrence_id)}"` : ""} aria-label="${t("removeDeparture")} ${mvEscape(date)}">${t("remove")}</button>` : "";
       const edit=item.removable === true && item.uid && calendarOk ? `<button data-edit-index="${schedule.indexOf(item)}">${t("edit")}</button>` : "";
-      return `<li class="${completed(item) ? "is-past" : ""}"><span><strong>${mvEscape(date)}</strong><br>${mvEscape(state)} · ${mvEscape(source)}</span>${edit}${remove}</li>`;
+      const recorded=recordedHeating(item);
+      return `<li class="${completed(item) ? "is-past" : ""}"><span><strong>${mvEscape(date)}</strong><br>${mvEscape(state)} · ${mvEscape(source)}${recorded ? `<br>${mvEscape(recorded)}` : ""}</span>${edit}${remove}</li>`;
     }).join("");
     const mobileDays = dayKeys.map((key,i) => {
       const date=new Date(`${key}T12:00:00Z`), locale=mvLang(h)==="sv" ? "sv-SE" : "en-GB";
@@ -807,11 +882,12 @@ class MotorvarmareCard extends HTMLElement {
       const departureLine=heat && !item.suppressed && !endOnly ? `${t("timelineDeparture")} ${this._clock(item.departure,key,ambiguous)} · ${source}` : source;
       const remove=item.removable===true && item.uid && calendarOk ? `<button class="mobile-remove" data-remove-uid="${mvEscape(item.uid)}" ${item.recurrence_id ? `data-recurrence-id="${mvEscape(item.recurrence_id)}"` : ""} aria-label="${t("removeDeparture")} ${mvEscape(this._date(item.departure))}">${t("remove")}</button>` : "";
       const edit=item.removable===true && item.uid && calendarOk ? `<button data-edit-index="${schedule.indexOf(item)}">${t("edit")}</button>` : "";
-      return `<div class="mobile-event ${heat ? "heating-event" : "marker-event"} ${completed(item) ? "is-past" : ""}" data-mobile-departure="${mvEscape(item.departure)}"><div><strong>${mvEscape(range)}</strong><div class="mobile-source">${mvEscape(departureLine)}</div></div>${edit}${remove}</div>`;
+      const recorded=recordedHeating(item);
+      return `<div class="mobile-event ${heat ? "heating-event" : "marker-event"} ${completed(item) ? "is-past" : ""}" data-mobile-departure="${mvEscape(item.departure)}"><div><strong>${mvEscape(range)}</strong><div class="mobile-source">${mvEscape(departureLine)}</div>${recorded ? `<div class="mobile-source">${mvEscape(recorded)}</div>` : ""}</div>${edit}${remove}</div>`;
     }).join("");
-    const mobileCalendar=`<div class="mobile-calendar"><div class="mobile-days" role="group" aria-label="${t("selectDay")}">${mobileDays}</div><div class="mobile-selected"><strong>${mvEscape(this._dayLabel(this._mobileDay,dayKeys.indexOf(this._mobileDay)))}</strong><button class="mobile-add" data-add-day="${this._mobileDay}" ${!calendarOk || this._pending ? "disabled" : ""}>＋ ${t("add")}</button></div><div class="mobile-events">${mobileEntries || `<div class="mobile-empty">${t("noDeparture")}</div>`}</div></div>`;
+    const mobileCalendar=`<div class="mobile-calendar"><div class="mobile-days" role="group" aria-label="${t("selectDay")}">${mobileDays}</div><div class="mobile-selected"><strong>${mvEscape(this._dayLabel(this._mobileDay,dayKeys.indexOf(this._mobileDay)))}</strong><button class="mobile-add" data-add-day="${this._mobileDay}" ${!canAddOn(this._mobileDay) ? "disabled" : ""}>＋ ${t("add")}</button></div><div class="mobile-events">${mobileEntries || `<div class="mobile-empty">${t("noDeparture")}</div>`}</div></div>`;
     const agenda=`<details class="cal-agenda" ${agendaOpen ? "open" : ""}><summary>${t("agenda")}</summary>${agendaRows ? `<ul>${agendaRows}</ul>` : `<div class="cal-empty">${t("noDeparture")}</div>`}</details>`;
-    const desktopCalendar=`<div class="desktop-calendar">${this._calendarExpanded ? agenda : ""}<div class="cal-scroll" role="region" tabindex="0" aria-label="${t("seven")}"><div class="cal-grid"><div class="cal-axis"><div class="cal-axis-head"></div><div class="cal-hours" style="height:${gridHeight}px">${rows}</div></div>${dayRows}</div></div><div class="cal-scroll-hint">${t("scrollHint")}</div>${!this._calendarExpanded ? agenda : ""}</div>`;
+    const desktopCalendar=`<div class="desktop-calendar">${this._calendarExpanded ? agenda : ""}<div class="cal-scroll" role="region" tabindex="0" aria-label="${dayView ? mvEscape(this._dayLabel(this._mobileDay)) : t("seven")}"><div class="cal-grid ${dayView ? "single-day-grid" : ""}"><div class="cal-axis"><div class="cal-axis-head"></div><div class="cal-hours" style="height:${gridHeight}px">${rows}</div></div>${dayRows}</div></div>${dayView ? "" : `<div class="cal-scroll-hint">${t("scrollHint")}</div>`}${!this._calendarExpanded ? agenda : ""}</div>`;
     const nextEnergy = mvUsable(status) && Number.isFinite(a.next_estimated_energy_kwh) && a.next_estimated_energy_kwh >= 0 && a.next_estimate_basis === "latest_complete_session_average" ? `${new Intl.NumberFormat(metricLocale,{minimumFractionDigits:2,maximumFractionDigits:3}).format(a.next_estimated_energy_kwh)} kWh` : null;
     const nextCost = nextEnergy ? formatCost(a.next_estimated_cost,a.next_estimated_currency) : null;
     const nextEstimate = nextEnergy ? `<div class="section next-estimate"><div class="sectionhead">${t("nextEnergyEstimate")}</div><div class="history-metrics"><strong>${mvEscape(nextEnergy)}</strong>${nextCost ? `<span>${t("cost")}: ${mvEscape(nextCost)}</span>` : ""}</div><div class="hint">${t(nextCost ? "nextEstimateNote" : "nextEstimateEnergyOnly")}</div></div>` : "";
@@ -836,8 +912,8 @@ class MotorvarmareCard extends HTMLElement {
       return `<div class="history-range">${mvEscape(range)}</div><div class="history-metrics">${duration ? `<span>${mvEscape(duration)}</span>` : ""}<span>${mvEscape(energy)}</span>${cost ? `<span>${t("cost")}: ${mvEscape(cost)}</span>` : forCalendar && a.cost_configured ? `<span>${t("calendarHistoryCostMissing")}</span>` : ""}${startTemperature ? `<span>${mvEscape(startTemperature)}</span>` : ""}</div>${!complete ? `<div class="history-incomplete">${t("historyTimeIncomplete")}</div>` : ""}`;
     };
     const historyRows=history.slice(0,this._historyLimit).map(item=>`<li class="history-entry">${historyItemContent(item)}</li>`).join("");
-    // Recorded switch sessions have no departure identity. Group by the local
-    // end date, as the energy totals do, and never attach one to a departure.
+    // Keep all measured sessions available by day, including unlinked history.
+    // The grouping uses the local end date, just like the energy totals.
     const calendarHistoryRows=history.filter(item=>typeof item.end === "string" && Number.isFinite(new Date(item.end).getTime()) && this._dayKey(item.end)===this._mobileDay)
       .map(item=>`<li class="calendar-history-entry">${historyItemContent(item,true)}</li>`).join("");
     const historyDayOptions=dayKeys.map((key,i)=>`<option value="${key}" ${key===this._mobileDay ? "selected" : ""}>${mvEscape(this._dayLabel(key,i))}</option>`).join("");
@@ -876,7 +952,7 @@ class MotorvarmareCard extends HTMLElement {
     const totalsBody=totals && totalLabels.some(([key])=>Array.isArray(totals[key])) ? `<div class="history-totals"><strong>${t("periodHistory")}</strong><div class="total-tabs" role="group" aria-label="${t("totalEnergy")}">${totalLabels.map(([key,label])=>`<button data-total-period="${key}" aria-pressed="${this._totalPeriod===key}">${label}</button>`).join("")}</div><ul class="total-list">${totalItems}</ul>${totalRows.length>this._totalLimit ? `<button id="total-more" class="history-more">${t("historyShowMore")}</button>` : totals.has_older?.[this._totalPeriod] ? `<div class="hint">${t("totalOlder")}</div>` : ""}</div>` : "";
     const formatRangeDate=key=>new Intl.DateTimeFormat(metricLocale,{timeZone:"UTC",day:"numeric",month:"short",year:"numeric"}).format(new Date(`${key}T12:00:00Z`));
     const editingCalendar=!!(this._selectedDay || this._editChoice || this._deleteRecurrence);
-    const calendarNav=`<div class="calendar-nav"><button id="window-previous" aria-label="${t("calendarPrevious")}" title="${t("calendarPrevious")}" ${this._windowOffset===0 || editingCalendar ? "disabled" : ""}>‹</button><span class="calendar-range">${mvEscape(formatRangeDate(dayKeys[0]))} – ${mvEscape(formatRangeDate(dayKeys[6]))}</span><button id="window-next" aria-label="${t("calendarNext")}" title="${t("calendarNext")}" ${editingCalendar ? "disabled" : ""}>›</button>${this._windowOffset ? `<button id="window-today" ${editingCalendar ? "disabled" : ""}>${t("calendarToday")}</button><button id="window-refresh" title="${t("refreshCalendar")}" aria-label="${t("refreshCalendar")}" ${editingCalendar ? "disabled" : ""}>↻</button>` : ""}</div>${editingCalendar ? `<div class="hint">${t("finishEditing")}</div>` : ""}`;
+    const calendarNav=`<div class="calendar-nav"><button id="window-previous" aria-label="${t("calendarPrevious")}" title="${t("calendarPrevious")}" ${this._windowOffset<=-31 || editingCalendar ? "disabled" : ""}>‹</button><span class="calendar-range">${mvEscape(formatRangeDate(dayKeys[0]))} – ${mvEscape(formatRangeDate(dayKeys[6]))}</span><button id="window-next" aria-label="${t("calendarNext")}" title="${t("calendarNext")}" ${editingCalendar ? "disabled" : ""}>›</button>${this._windowOffset ? `<button id="window-today" ${editingCalendar ? "disabled" : ""}>${t("calendarToday")}</button><button id="window-refresh" title="${t("refreshCalendar")}" aria-label="${t("refreshCalendar")}" ${editingCalendar ? "disabled" : ""}>↻</button>` : ""}</div>${editingCalendar ? `<div class="hint">${t("finishEditing")}</div>` : ""}`;
     const scheduleBody=!mvUsable(status) ? `<div class="cal-warning" role="status">${t("noStatus")}</div>` : this._windowLoading ? `<div class="hint" role="status">${t("calendarLoading")}</div>` : this._windowError ? `<div class="cal-warning" role="alert">${this._windowUnsupported ? t("updateCalendar") : `${t("calendarFailed")} <button id="window-retry">${t("retry")}</button>`}</div>` : hasSchedule ? `${this._windowCalendarError ? `<div class="cal-warning" role="status">${t("calendarPartial")}</div>` : ""}${calendarGrid}` : `<div class="cal-warning">${t("updateCalendar")}</div>`;
     const deviationMessage=mvUsable(status) && a.power_deviation_active === true ? t(a.power_deviation_direction === "low" ? "deviationLow" : a.power_deviation_direction === "high" ? "deviationHigh" : "deviationUnknown") : null;
     const expandedAlerts=this._calendarExpanded && mvUsable(status) ? [...new Set([
@@ -885,11 +961,21 @@ class MotorvarmareCard extends HTMLElement {
       a.alarm_active === true && showPower && a.energy_monitor_status === "low_power" && sw?.state === "on" ? t("powerAlarm") : null,
       deviationMessage,
     ].filter(Boolean))].map(message=>`<div class="notice" role="status">${mvEscape(message)}</div>`).join("") : "";
-    const calendarContents=`<div class="calendar-title"><span>${t("seven")}</span><span class="calendar-title-actions"><button id="new-departure" ${!calendarOk || this._pending ? "disabled" : ""}>＋ ${t("addDay")}</button>${!this._calendarExpanded ? `<button id="open-calendar" ${!mvUsable(status) ? "disabled" : ""}>${t("openCalendar")}</button>` : ""}</span></div><div class="calendar-subtitle">${this._calendarExpanded ? t("expandedCalendarHint") : t(a.weather_enabled ? "shortForecast" : "shortEstimate")}${this._calendarExpanded && a.weather_enabled ? ` ${t("shortForecast")}` : ""}${hasOverlap ? ` ${t("overlap")}` : ""}</div>${mvUsable(status) ? calendarNav : ""}${expandedAlerts}${this._calendarExpanded && this._actionError ? `<div class="notice" role="alert">${mvEscape(this._actionError)}</div>` : ""}${scheduleBody}${mvUsable(status) && !calendarOk ? `<div class="hint">${t("updateAdd")}</div>` : ""}`;
+    const viewSwitch=this._calendarExpanded ? `<div class="calendar-view-switch" role="group" aria-label="${t("viewNavigation")}">${[["day","calendarDay"],["week","calendarWeek"]].map(([key,label])=>`<button data-calendar-mode="${key}" aria-pressed="${this._calendarMode===key}" ${editingCalendar ? "disabled" : ""}>${t(label)}</button>`).join("")}</div>` : "";
+    const dayNav=dayView ? `<div class="calendar-nav"><button id="day-previous" aria-label="${t("previousDay")}" ${(this._windowOffset<=-31 && this._mobileDay===dayKeys[0]) || editingCalendar ? "disabled" : ""}>‹</button><span class="calendar-range">${mvEscape(this._dayLabel(this._mobileDay))}</span><button id="day-next" aria-label="${t("nextDay")}" ${editingCalendar ? "disabled" : ""}>›</button>${(this._windowOffset || this._mobileDay!==todayDateKey) ? `<button id="day-today" ${editingCalendar ? "disabled" : ""}>${t("calendarToday")}</button>` : ""}</div>` : "";
+    const detailsOpen=!!this.shadowRoot.querySelector(".schedule-details")?.open;
+    const scheduleDetails=`<details class="schedule-details" ${detailsOpen ? "open" : ""}><summary>${t("scheduleDetails")}</summary><p>${t(a.weather_enabled ? "shortForecast" : "shortEstimate")}${hasOverlap ? " "+t("overlap") : ""}</p></details>`;
+    const undoNotice=this._removal && !this._removal.committing ? `<div class="undo-removal" aria-label="${t("removeDeparture")}"><span role="status">${t(this._removal.series ? "seriesRemovalPending" : "removalPending")}</span><button id="undo-removal">${t("undo")}</button><button id="commit-removal">${t("removeNow")}</button></div>` : "";
+    const calendarContents=`<div class="calendar-title"><span>${dayView ? t("calendarDay") : t("seven")}</span><span class="calendar-title-actions"><button id="new-departure" ${!canAddOn(this._mobileDay) ? "disabled" : ""}>＋ ${t("addDay")}</button>${!this._calendarExpanded ? `<button id="open-calendar" ${!mvUsable(status) ? "disabled" : ""}>${t("openCalendar")}</button>` : ""}</span></div>${scheduleDetails}${viewSwitch}${mvUsable(status) ? dayView ? dayNav : calendarNav : ""}${expandedAlerts}${this._calendarExpanded && this._actionError ? `<div class="notice" role="alert">${mvEscape(this._actionError)}</div>` : ""}${scheduleBody}${undoNotice}${mvUsable(status) && !calendarOk ? `<div class="hint">${t("updateAdd")}</div>` : ""}`;
     const compactCalendar=this._calendarExpanded ? `<div class="calendar-placeholder" aria-hidden="true" style="height:${this._calendarPlaceholderHeight}px"></div>` : `<div class="calendar">${calendarContents}</div>`;
     // The open attribute is retained on updates so mvPatch does not turn a
     // native modal into a closed dialog on unrelated Home Assistant events.
-    const expandedCalendar=this._calendarExpanded ? `<dialog id="calendar-expanded" class="calendar-modal" aria-labelledby="calendar-expanded-title" ${this.shadowRoot.querySelector("#calendar-expanded")?.open ? "open" : ""}><div class="calendar-modal-head"><h2 id="calendar-expanded-title">${t("expandedCalendarTitle")}</h2><button id="close-calendar" aria-label="${t("closeCalendar")}" title="${t("closeCalendar")}">✕</button></div><div class="calendar expanded-calendar">${calendarContents}<p class="calendar-modal-hint">${t("expandedCalendarScroll")}</p></div></dialog>` : "";
+    const expandedCalendar=this._calendarExpanded ? `<dialog id="calendar-expanded" class="calendar-modal" aria-labelledby="calendar-expanded-title" ${this.shadowRoot.querySelector("#calendar-expanded")?.open ? "open" : ""}><div class="calendar-modal-head"><h2 id="calendar-expanded-title">${t("expandedCalendarTitle")}</h2><button id="close-calendar" aria-label="${t("closeCalendar")}" title="${t("closeCalendar")}">✕</button></div><div class="calendar expanded-calendar">${calendarContents}${dayView ? "" : `<p class="calendar-modal-hint">${t("expandedCalendarScroll")}</p>` }</div></dialog>` : "";
+    const departureSummary = `<section class="departure-summary" aria-label="${t("departure")}">
+          ${Number.isFinite(nextMs) ? `<div class="summary-label">${t("departure")}</div><div class="summary-date">${mvEscape(this._date(a.next_departure))}</div>${summaryTimeline}` : `<div class="summary-label">${t("departure")}</div><div class="summary-empty">${mvUsable(status) ? t("summaryEmpty") : t("noStatus")}</div>${mvUsable(status) ? `<button id="empty-add-departure" ${!calendarOk || this._pending ? "disabled" : ""}>＋ ${t("summaryAdd")}</button>` : ""}`}
+          <div class="summary-metrics"><span><span>${t("summaryTemperature")}</span> <strong>${mvEscape(temperature)}</strong></span><span><span>${t("summaryDuration")}</span> <strong>${currentRuntime !== null ? mvDuration(h,currentRuntime) : mvUsable(status) && a.next_departure && Number.isFinite(a.duration_minutes) ? mvDuration(h,a.duration_minutes) : "–"}</strong></span>${mvUsable(status) && a.post_departure_minutes > 0 ? `<span><span>${t("postDeparture")}</span> <strong>${mvDuration(h,a.post_departure_minutes)}</strong></span>` : ""}</div>
+          ${mvUsable(status) && a.source ? `<div class="summary-source">${t("from")} ${mvEscape(String(mvStateText(h,a.source)).toLowerCase())}</div>` : ""}
+        </section>`;
     const newMarkup = `
       <style>
         :host{display:block;color:var(--primary-text-color);font-family:var(--paper-font-body1_-_font-family,Roboto,system-ui,sans-serif)} *{box-sizing:border-box} ha-card{overflow:hidden} .wrap{padding:20px} .head{display:flex;gap:12px;align-items:center;margin-bottom:20px} .icon{width:42px;height:42px;display:grid;place-items:center;border-radius:14px;background:rgba(var(--rgb-primary-color,3,169,244),.12);color:var(--primary-color)} ha-icon{--mdc-icon-size:22px}.headtext{flex:1;min-width:0}.title{font-size:18px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.status{font-size:13px;color:var(--secondary-text-color);margin-top:2px}.badge{font-size:12px;font-weight:600;padding:6px 10px;border-radius:20px;background:var(--secondary-background-color);color:var(--secondary-text-color);white-space:nowrap}.badge.on{background:rgba(var(--rgb-success-color,67,160,71),.14);color:var(--success-color,#278748)} .stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 16px;padding:16px 0;border-top:1px solid var(--divider-color);border-bottom:1px solid var(--divider-color)} .label{font-size:12px;color:var(--secondary-text-color);margin-bottom:3px}.value{font-size:15px;font-weight:500;overflow-wrap:anywhere}.section{margin-top:18px}.sectionhead{font-weight:600;margin-bottom:10px}.manual{display:flex;gap:8px;align-items:end;flex-wrap:wrap}.field{flex:1;min-width:175px}.field label{display:block;font-size:12px;color:var(--secondary-text-color);margin-bottom:5px} input[type=datetime-local],input[type=time]{color:var(--primary-text-color);background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:8px;padding:8px;font:inherit;min-height:40px;max-width:100%} input[type=datetime-local]{width:100%} button{font:500 14px var(--paper-font-body1_-_font-family,Roboto,system-ui,sans-serif);color:var(--primary-color);background:transparent;border:0;border-radius:8px;min-height:40px;padding:8px 10px;cursor:pointer} button.primary{background:var(--primary-color);color:var(--text-primary-color,#fff)} button:disabled,input:disabled{opacity:.48;cursor:not-allowed} button:focus-visible,input:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}.expand{display:flex;align-items:center;justify-content:space-between;width:100%;padding:9px 0;text-align:left;color:var(--primary-text-color);font-weight:600}.expand .small{font-size:12px;color:var(--primary-color)} .day{display:grid;grid-template-columns:minmax(75px,1fr) auto auto;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--divider-color)} .day input[type=time]{width:100px}.day-toggle{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--secondary-text-color);min-width:50px}.day-toggle input{width:18px;height:18px;accent-color:var(--primary-color)} .notice{font-size:13px;color:var(--error-color,#c62828);margin-top:12px;overflow-wrap:anywhere}.hint{font-size:12px;color:var(--secondary-text-color);margin-top:10px}.actions{display:flex;gap:4px;align-items:center} @media(max-width:350px){.wrap{padding:15px}.day{grid-template-columns:minmax(65px,1fr) auto auto;gap:5px}.day input[type=time]{width:90px}}
@@ -995,6 +1081,12 @@ class MotorvarmareCard extends HTMLElement {
         .calendar-title{flex-wrap:wrap}.calendar-title-actions{display:flex;align-items:center;gap:2px;flex-wrap:wrap}.calendar-placeholder{margin-top:20px}
         .calendar-modal{width:min(1200px,calc(100vw - 24px));max-width:none;max-height:calc(100vh - 24px);max-height:calc(100dvh - 24px);padding:18px;border:1px solid var(--divider-color);border-radius:18px;background:var(--card-background-color);color:var(--primary-text-color);box-shadow:0 18px 55px rgba(0,0,0,.35);overflow:auto;overscroll-behavior:contain}
         .calendar-modal::backdrop{background:rgba(0,0,0,.65)}
+        .calendar-modal .single-day-grid{min-width:0;grid-template-columns:46px minmax(0,1fr)}
+        .calendar-view-switch,.undo-removal{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-block:8px}
+        .calendar-view-switch button{min-width:64px}.calendar-view-switch [aria-pressed=true]{background:var(--secondary-background-color);color:var(--primary-color);font-weight:600}
+        .schedule-details{font-size:12px;color:var(--secondary-text-color);margin:0 0 8px}.schedule-details summary{cursor:pointer;padding:8px 0}.schedule-details p{margin:0 0 8px;line-height:1.45}
+        .undo-removal{position:sticky;bottom:8px;z-index:6;border:1px solid var(--divider-color);box-shadow:0 2px 10px rgba(0,0,0,.2);padding:8px;border-radius:8px;background:var(--secondary-background-color)}.undo-removal span{flex:1 0 100%}
+        .cal-event button.remove{min-width:44px;min-height:44px;align-self:flex-start}
         .calendar-modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.calendar-modal-head h2{font-size:19px;line-height:1.3;margin:0;font-weight:650}.calendar-modal-head button{min-width:44px;min-height:44px;font-size:20px;color:var(--secondary-text-color)}
         .calendar-modal .calendar{margin-top:8px}.calendar-modal .calendar .desktop-calendar{display:block}.calendar-modal .calendar .mobile-calendar{display:none}
         .calendar-modal .cal-scroll{height:calc(100vh - 280px);height:calc(100dvh - 280px);min-height:240px;max-height:720px}
@@ -1023,7 +1115,9 @@ class MotorvarmareCard extends HTMLElement {
         .active-live{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border-radius:999px;background:color-mix(in srgb,var(--primary-color) 14%,transparent);color:var(--primary-color);font-size:11px;font-weight:700}
         .active-live i{width:7px;height:7px;border-radius:50%;background:currentColor}
         .active-remaining{font-size:22px;line-height:1.2;font-weight:700;margin:10px 0 14px}
-        .active-timeline{padding:0}
+        .active-milestones{margin-top:-6px;font-size:14px;color:var(--secondary-text-color)}
+        .control-panel + .departure-summary{margin-top:16px}
+        .active-timeline{padding:0;margin-top:16px}
         .active-times{display:flex;justify-content:space-between;gap:12px}.active-times>div{display:grid;gap:3px}.active-times>div:last-child{text-align:right}
         .active-times span,.active-progress-caption,.active-axis{font-size:11px;line-height:1.3;color:var(--secondary-text-color)}
         .active-times strong{font-size:14px;color:var(--primary-text-color)}
@@ -1061,15 +1155,20 @@ class MotorvarmareCard extends HTMLElement {
         @container (max-width:420px){.mobile-event{flex-wrap:wrap}.mobile-event>div{flex:1 0 100%}.mobile-event [data-edit-index]{margin-left:auto}}
         @container (max-width:340px){.control-panel,.main-panel:not([hidden]){padding:12px}.calendar-range{min-width:125px}.head{flex-wrap:wrap}.headtext{flex:1 1 120px}}
         @container (max-width:400px){.active-axis.active-ambiguous .tick-1{display:none}}
+        @container (max-width:245px){
+          .headtext,.title{white-space:normal;overflow-wrap:anywhere}
+          .departure-timeline,.departure-timeline.with-stop{grid-template-columns:1fr;gap:5px}
+          .departure-timeline:before,.timeline-point:before{display:none}
+          .timeline-point{padding:0;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px}
+          .timeline-point strong{white-space:nowrap}
+          .main-tabs{flex-direction:column}
+          .main-tabs button{width:100%}
+        }
         @media(max-width:350px){.wrap{padding:15px}}
       </style>
       <ha-card><div class="wrap">
         <div class="head"><div class="icon"><ha-icon icon="mdi:car-defrost-front"></ha-icon></div><div class="headtext"><div class="title">${mvEscape(title)}</div><div class="status">${mvEscape(statusText)}</div></div><span class="badge ${sw?.state === "on" ? "on" : ""}">${t("heater")} ${heating}</span></div>
-        <section class="departure-summary" aria-label="${t("departure")}">
-          ${Number.isFinite(nextMs) ? `<div class="summary-label">${t("departure")}</div><div class="summary-date">${mvEscape(this._date(a.next_departure))}</div>${summaryTimeline}` : `<div class="summary-label">${t("departure")}</div><div class="summary-empty">${mvUsable(status) ? t("summaryEmpty") : t("noStatus")}</div>${mvUsable(status) ? `<button id="empty-add-departure" ${!calendarOk || this._pending ? "disabled" : ""}>＋ ${t("summaryAdd")}</button>` : ""}`}
-          <div class="summary-metrics"><span><span>${t("summaryTemperature")}</span> <strong>${mvEscape(temperature)}</strong></span><span><span>${t("summaryDuration")}</span> <strong>${currentRuntime !== null ? mvDuration(h,currentRuntime) : mvUsable(status) && a.next_departure && Number.isFinite(a.duration_minutes) ? mvDuration(h,a.duration_minutes) : "–"}</strong></span>${mvUsable(status) && a.post_departure_minutes > 0 ? `<span><span>${t("postDeparture")}</span> <strong>${mvDuration(h,a.post_departure_minutes)}</strong></span>` : ""}</div>
-          ${mvUsable(status) && a.source ? `<div class="summary-source">${t("from")} ${mvEscape(String(mvStateText(h,a.source)).toLowerCase())}</div>` : ""}
-        </section>
+        ${active ? "" : departureSummary}
         ${a.alarm_active === true && showPower && a.energy_monitor_status === "low_power" && sw?.state === "on" ? `<div class="notice power-alarm" role="alert">${t("powerAlarm")}</div>` : ""}
         ${deviationMessage ? `<div class="notice power-deviation" role="alert">${mvEscape(deviationMessage)}</div>` : ""}
         ${meterWarnings.map(message => `<div class="hint meter-warning">${mvEscape(message)}</div>`).join("")}
@@ -1079,6 +1178,7 @@ class MotorvarmareCard extends HTMLElement {
         <section class="control-panel" aria-label="${t("heaterControl")}">${active ? activeControl : `<div class="sectionhead">${t("heaterControl")}</div><div class="quick-actions">${mvUsable(status) && a.owned ? `<button id="stop-now" ${!stopOk || this._pending ? "disabled" : ""}>${t("stopNow")}</button><span class="hint">${a.active_until ? `${t("plannedStop")} ${mvEscape(this._date(a.active_until))}` : t("owned")}</span>` : `<button class="primary" id="start-now" ${!startOk || this._pending ? "disabled" : ""}>${t("runNow")}</button><span class="hint">${!mvUsable(status) ? t("noStatus") : sw?.state === "on" ? t("external") : sw?.state !== "off" ? t("unknownSwitch") : currentRuntime === null ? t("tempUnavailable") : currentRuntime <= 0 ? t("noRuntime") : `${t("runtimeFor")} ${mvDuration(h,currentRuntime)}; ${t("runtimeOff")}`}</span>`}</div>`}
         ${mvUsable(status) && (skipButton || pauseSwitch) ? `<div class="secondary-actions"><button id="more-actions" aria-expanded="${this._showMoreActions}">${this._showMoreActions ? t("lessActions") : t("moreActions")} <span aria-hidden="true">${this._showMoreActions ? "⌃" : "⌄"}</span></button>${a.automation_paused && pauseSwitch ? `<button id="pause-automation" class="resume-action" ${this._pending || pauseSwitch.state === "unavailable" ? "disabled" : ""}>${t("resume")}</button>` : ""}</div>${this._showMoreActions ? `<div class="quick-actions schedule-actions">${skipButton ? `<button id="skip-next" ${!a.next_departure || this._pending || skipButton.state === "unavailable" ? "disabled" : ""}>${t("skipNext")}</button>` : ""}${pauseSwitch && !a.automation_paused ? `<button id="pause-automation" ${this._pending || pauseSwitch.state === "unavailable" ? "disabled" : ""}>${t("pause")}</button>${pauseDate ? `<button id="show-pause-date">${t("pauseUntil")}</button>` : ""}` : ""}</div>${this._showPauseDate && pauseDate && !a.automation_paused ? `<div class="quick-actions pause-editor"><label for="pause-until">${t("pauseUntil")}</label><input id="pause-until" type="datetime-local" value="${mvEscape(this._pauseDraft ?? this._inputDate(pauseDate.state))}"><button id="save-pause">${t("savePause")}</button></div>` : ""}` : ""}${a.automation_paused && a.pause_until ? `<div class="hint">${t("pauseUntil")} ${mvEscape(this._date(a.pause_until))}</div>` : ""}` : ""}
         </section>
+        ${active ? departureSummary : ""}
         <div class="main-tabs" role="group" aria-label="${t("viewNavigation")}">${[["calendar","calendarTab"],["energy","energyTab"],["settings","settingsTab"]].map(([key,label])=>`<button data-main-tab="${key}" aria-pressed="${this._activeView===key}">${t(label)}</button>`).join("")}</div>
         <div class="main-panel" data-main-panel="calendar" ${this._activeView!=="calendar" ? "hidden" : ""}>${compactCalendar}</div>
         <div class="main-panel" data-main-panel="settings" ${this._activeView!=="settings" ? "hidden" : ""}>
@@ -1108,6 +1208,7 @@ class MotorvarmareCard extends HTMLElement {
     this.shadowRoot.querySelector("#open-calendar")?.addEventListener("click",()=>{
       this._calendarPlaceholderHeight=Math.ceil(this.shadowRoot.querySelector(".calendar")?.getBoundingClientRect().height || 0);
       this._calendarExpanded=true;
+      this._calendarMode=window.matchMedia("(max-width: 700px)").matches ? "day" : "week";
       this._render();
     }, {signal:renderSignal});
     const newScroll=this.shadowRoot.querySelector(".cal-scroll");
@@ -1142,7 +1243,7 @@ class MotorvarmareCard extends HTMLElement {
     this.shadowRoot.querySelector("#extend-30")?.addEventListener("click", () => this._call("button", "press", {entity_id:e.extend_30}), {signal:renderSignal});
     this.shadowRoot.querySelector("#active-graph-toggle")?.addEventListener("click", () => {this._showPowerGraph=!this._showPowerGraph;this._render();this.shadowRoot.querySelector("#active-graph-toggle")?.focus({preventScroll:true});}, {signal:renderSignal});
     this.shadowRoot.querySelectorAll("[data-main-tab]").forEach(el=>el.addEventListener("click",()=>{this._activeView=el.dataset.mainTab;this._render();}, {signal:renderSignal}));
-    this.shadowRoot.querySelector("#new-departure")?.addEventListener("click",()=>this._selectCalendarDay(this._dayKeys()[0]), {signal:renderSignal});
+    this.shadowRoot.querySelector("#new-departure")?.addEventListener("click",()=>this._selectCalendarDay(this._mobileDay || this._dayKeys()[0]), {signal:renderSignal});
     this.shadowRoot.querySelector("#empty-add-departure")?.addEventListener("click",()=>{this._activeView="calendar";this._selectCalendarDay(this._dayKeys()[0]);}, {signal:renderSignal});
     this.shadowRoot.querySelector("#skip-next")?.addEventListener("click", () => this._call("button", "press", {entity_id:e.skip_next}), {signal:renderSignal});
     this.shadowRoot.querySelector("#more-actions")?.addEventListener("click", () => {this._showMoreActions=!this._showMoreActions;this._render();}, {signal:renderSignal});
@@ -1158,6 +1259,13 @@ class MotorvarmareCard extends HTMLElement {
         if (await this._call("switch","turn_on",{entity_id:e.automation_paused})) {this._pauseDraft=null;this._showPauseDate=false;this._render();}
       }
     }, {signal:renderSignal});
+    this.shadowRoot.querySelectorAll("[data-calendar-mode]").forEach(el=>el.addEventListener("click",()=>{this._calendarMode=el.dataset.calendarMode;this._render();}, {signal:renderSignal}));
+    this.shadowRoot.querySelector("#day-previous")?.addEventListener("click",()=>this._changeCalendarDay(-1), {signal:renderSignal});
+    this.shadowRoot.querySelector("#day-next")?.addEventListener("click",()=>this._changeCalendarDay(1), {signal:renderSignal});
+    this.shadowRoot.querySelector("#day-today")?.addEventListener("click",()=>this._changeCalendarWindow(null,todayDateKey), {signal:renderSignal});
+    this.shadowRoot.querySelector("#undo-removal")?.addEventListener("click",()=>{this._cancelRemoval();this._render();}, {signal:renderSignal});
+    this.shadowRoot.querySelector("#commit-removal")?.addEventListener("click",()=>this._commitRemoval(), {signal:renderSignal});
+    if (this._removal) this.shadowRoot.querySelectorAll("[data-remove-uid]").forEach(el=>el.disabled=true);
     this.shadowRoot.querySelector("#window-previous")?.addEventListener("click", () => this._changeCalendarWindow(-7), {signal:renderSignal});
     this.shadowRoot.querySelector("#window-next")?.addEventListener("click", () => this._changeCalendarWindow(7), {signal:renderSignal});
     this.shadowRoot.querySelector("#window-today")?.addEventListener("click", () => this._changeCalendarWindow(null), {signal:renderSignal});
@@ -1173,13 +1281,17 @@ class MotorvarmareCard extends HTMLElement {
     }, {signal:renderSignal});
     this.shadowRoot.querySelectorAll("[data-add-day]").forEach(el => el.addEventListener("click", () => this._selectCalendarDay(el.dataset.addDay), {signal:renderSignal}));
     this.shadowRoot.querySelectorAll("[data-grid-day]").forEach(el => el.addEventListener("click", event => {
-      if (!calendarOk || this._pending || event.target.closest(".cal-event")) return;
+      if (!canAddOn(el.dataset.gridDay) || event.target.closest(".cal-event")) return;
       const elapsed=(event.clientY-el.getBoundingClientRect().top)/hourHeight*60;
       const minute=Math.max(0,Math.min(23*60+45,Math.round(elapsed/15)*15));
       this._selectCalendarDay(el.dataset.gridDay); this._calendarTime=`${String(Math.floor(minute/60)).padStart(2,"0")}:${String(minute%60).padStart(2,"0")}`; this._render();
     }, {signal:renderSignal}));
     this.shadowRoot.querySelector("#cancel-calendar")?.addEventListener("click", () => { this._selectedDay=null; this._editContext=null; this._render(); }, {signal:renderSignal});
-    this.shadowRoot.querySelector("#calendar-date")?.addEventListener("input", event => {this._editDate=event.target.value;}, {signal:renderSignal});
+    this.shadowRoot.querySelector("#calendar-date")?.addEventListener("input", event => {
+      this._editDate=event.target.value;
+      const title=this.shadowRoot.querySelector("#calendar-editor-title");
+      if (title) title.textContent=t(this._editContext ? "editDeparture" : "newDeparture")+(this._editDate ? " · "+this._dayLabel(this._editDate) : "");
+    }, {signal:renderSignal});
     this.shadowRoot.querySelector("#calendar-summary")?.addEventListener("input", event => {this._editSummary=event.target.value;}, {signal:renderSignal});
     this.shadowRoot.querySelector("#confirm-series-change")?.addEventListener("change", event => {this._editAcknowledged=event.target.checked;}, {signal:renderSignal});
     this.shadowRoot.querySelector("#calendar-time")?.addEventListener("input", event => { this._calendarTime=event.target.value; }, {signal:renderSignal});
@@ -1240,14 +1352,14 @@ class MotorvarmareCard extends HTMLElement {
     this.shadowRoot.querySelector("#edit-cancel")?.addEventListener("click",()=>{this._editChoice=null;this._render();}, {signal:renderSignal});
     this.shadowRoot.querySelectorAll("[data-remove-uid]").forEach(el => el.addEventListener("click", async () => {
       if (el.dataset.recurrenceId) {this._deleteRecurrence={uid:el.dataset.removeUid,recurrence_id:el.dataset.recurrenceId};this._render();return;}
-      if (await this._callWS({type:"calendar/event/delete",entity_id:e.calendar,uid:el.dataset.removeUid})) await this._loadCalendarWindow(true);
+      this._queueRemoval({type:"calendar/event/delete",entity_id:e.calendar,uid:el.dataset.removeUid});
     }, {signal:renderSignal}));
     this.shadowRoot.querySelector("#delete-cancel")?.addEventListener("click",()=>{this._deleteRecurrence=null;this._render();}, {signal:renderSignal});
     const deleteRecurring=async (series)=>{
       const item=this._deleteRecurrence;if(!item)return;
       const msg={type:"calendar/event/delete",entity_id:e.calendar,uid:item.uid};
       if(!series)msg.recurrence_id=item.recurrence_id;
-      if(await this._callWS(msg)){this._deleteRecurrence=null;await this._loadCalendarWindow(true);}
+      this._queueRemoval(msg,series);
     };
     this.shadowRoot.querySelector("#delete-one")?.addEventListener("click",()=>deleteRecurring(false), {signal:renderSignal});
     this.shadowRoot.querySelector("#delete-series")?.addEventListener("click",()=>deleteRecurring(true), {signal:renderSignal});
@@ -1291,6 +1403,8 @@ window.customCards = window.customCards || [];
 if (!window.customCards.some(c=>c.type === "motorvarmare-card")) window.customCards.push({type:"motorvarmare-card", name:"Motorvärmare", description:"Motorvärmare / Engine heater schedule", preview:true});
 
 /* Companion multi-car overview. Append after motorvarmare-card definitions. */
+Object.assign(MV_I18N.sv,{layoutLabel:"Visning",layoutCards:"Bilkort med automatisk bredd",layoutList:"Kompakt lista"});
+Object.assign(MV_I18N.en,{layoutLabel:"Layout",layoutCards:"Responsive car cards",layoutList:"Compact list"});
 class MotorvarmareOverview extends HTMLElement {
   constructor() {
     super();
@@ -1300,9 +1414,9 @@ class MotorvarmareOverview extends HTMLElement {
     this._events = null;
   }
   static getConfigElement() { return document.createElement("motorvarmare-overview-editor"); }
-  static getStubConfig() { return {entities: []}; }
+  static getStubConfig() { return {entities: [], layout: "cards"}; }
   getCardSize() { return Math.max(2, (this._config.entities || []).length * 2); }
-  getGridOptions() { return {columns: 6, min_columns: 3, rows: "auto"}; }
+  getGridOptions() { return {columns: this._config.layout === "cards" ? 12 : 6, min_columns: 3, rows: "auto"}; }
   setConfig(config) {
     if (!config || typeof config !== "object" || (config.entities !== undefined && !Array.isArray(config.entities))) {
       throw new Error("entities must be a list of status sensor entity IDs");
@@ -1327,6 +1441,10 @@ class MotorvarmareOverview extends HTMLElement {
     if (!this.shadowRoot || !this._hass) return;
     const t = key => mvText(this._hass, key);
     const title = this._config.title || t("carOverview");
+    if (this._config.layout === "cards" && this._config.entities.length) {
+      this._renderCards();
+      return;
+    }
     const entries = (this._config.entities || []).map(entity => {
       const state = this._hass.states?.[entity];
       const attrs = state?.attributes || {};
@@ -1387,6 +1505,32 @@ class MotorvarmareOverview extends HTMLElement {
       detail.hass = this._hass;
     }
   }
+
+  _renderCards() {
+    const ids = this._config.entities;
+    const title = this._config.title || "";
+    const signature = JSON.stringify([ids, title]);
+    if (!this.shadowRoot.querySelector(".full-cards") || this._cardsSignature !== signature) {
+      this._cardsSignature = signature;
+      this._events?.abort();
+      mvPatch(this.shadowRoot, `<style>
+        :host{display:block;container-type:inline-size}
+        .full-cards{display:grid;gap:12px;grid-template-columns:1fr;align-items:start}
+        .full-cards motorvarmare-card{display:block;min-width:0}
+        h2{margin:0 0 12px;font:600 18px/1.3 var(--paper-font-body1_-_font-family,system-ui)}
+        @container (min-width:752px){.full-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+        </style>${title ? `<h2>${mvEscape(title)}</h2>` : ""}<div class="full-cards">${ids.map(id=>`<motorvarmare-card id="${mvEscape(id)}"></motorvarmare-card>`).join("")}</div>`);
+    }
+    // HA can supply hass before the overview is attached to the dashboard.
+    customElements.upgrade(this.shadowRoot);
+    for (const card of this.shadowRoot.querySelectorAll(".full-cards motorvarmare-card")) {
+      if (card._overviewEntity !== card.id) {
+        card.setConfig({status_entity:card.id});
+        card._overviewEntity = card.id;
+      }
+      card.hass = this._hass;
+    }
+  }
 }
 
 class MotorvarmareOverviewEditor extends HTMLElement {
@@ -1406,7 +1550,8 @@ class MotorvarmareOverviewEditor extends HTMLElement {
     for (const id of selected) if (!states.some(s => s.entity_id === id)) states.push({entity_id:id,attributes:{friendly_name:`${id} (${t("missing")})`}});
     states.sort((a,b) => (a.attributes?.friendly_name || a.entity_id).localeCompare(b.attributes?.friendly_name || b.entity_id, mvLang(this._hass)));
     const options = states.map(s => `<label class="option"><input type="checkbox" data-entity="${mvEscape(s.entity_id)}" ${selected.includes(s.entity_id)?"checked":""}><span>${mvEscape(s.attributes?.friendly_name || s.entity_id)}<small>${mvEscape(s.entity_id)}</small></span></label>`).join("");
-    this.shadowRoot.innerHTML = `<style>:host{display:block}.fields{display:grid;gap:14px}.text-label{display:grid;gap:5px;color:var(--secondary-text-color);font:14px Roboto,system-ui,sans-serif}.title{font:14px Roboto,system-ui,sans-serif;color:var(--primary-text-color);background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:6px;padding:10px;min-height:42px;box-sizing:border-box;width:100%}.option{display:flex;align-items:center;gap:10px;padding:8px 0;color:var(--primary-text-color);font:14px Roboto,system-ui,sans-serif}.option input{width:18px;height:18px}.option span{display:grid;gap:3px}.option small{color:var(--secondary-text-color)}p{font:13px Roboto,system-ui,sans-serif;color:var(--secondary-text-color)}</style><div class="fields"><label class="text-label">${mvEscape(t("cardTitle"))}<input class="title" id="title" value="${mvEscape(this._config.title || "")}" placeholder="${mvEscape(t("carOverview"))}"></label><div><div class="text-label">${mvEscape(t("addCars"))}</div>${options || `<p>${mvEscape(t("noCars"))}</p>`}</div></div>`;
+    this.shadowRoot.innerHTML = `<style>:host{display:block}.fields{display:grid;gap:14px}.text-label{display:grid;gap:5px;color:var(--secondary-text-color);font:14px Roboto,system-ui,sans-serif}.title{font:14px Roboto,system-ui,sans-serif;color:var(--primary-text-color);background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:6px;padding:10px;min-height:42px;box-sizing:border-box;width:100%}.option{display:flex;align-items:center;gap:10px;padding:8px 0;color:var(--primary-text-color);font:14px Roboto,system-ui,sans-serif}.option input{width:18px;height:18px}.option span{display:grid;gap:3px}.option small{color:var(--secondary-text-color)}p{font:13px Roboto,system-ui,sans-serif;color:var(--secondary-text-color)}</style><div class="fields"><label class="text-label">${mvEscape(t("cardTitle"))}<input class="title" id="title" value="${mvEscape(this._config.title || "")}" placeholder="${mvEscape(t("carOverview"))}"></label><label class="text-label">${mvEscape(t("layoutLabel"))}<select class="title" id="overview-layout"><option value="cards" ${this._config.layout==="cards" ? "selected" : ""}>${mvEscape(t("layoutCards"))}</option><option value="list" ${this._config.layout!=="cards" ? "selected" : ""}>${mvEscape(t("layoutList"))}</option></select></label><div><div class="text-label">${mvEscape(t("addCars"))}</div>${options || `<p>${mvEscape(t("noCars"))}</p>`}</div></div>`;
+    this.shadowRoot.querySelector("#overview-layout").addEventListener("change", event => this._set({layout:event.target.value}));
     this.shadowRoot.querySelector("#title").addEventListener("change", event => this._set({title:event.target.value}));
     this.shadowRoot.querySelectorAll("[data-entity]").forEach(box => box.addEventListener("change", () => {
       const checked = [...this.shadowRoot.querySelectorAll("[data-entity]:checked")].map(node => node.dataset.entity);

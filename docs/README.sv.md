@@ -13,7 +13,7 @@
 
 Motorvärmare planerar en elektrisk motorvärmare utifrån en utetemperatursensor och en avresetid. Varje bil har en egen smartplugg eller brytare som fungerar i Home Assistant samt egna avresor. Inställningsformulär, entiteter och tillhörande kort stöder svenska och engelska.
 
-![Motorvärmarkort med pågående värmning och kalender, visat med fiktiva exempeldata](demo-card-sv.png)
+![Pågående värmning med återstående tid, stopp- och förlängningsknappar ovanför effektgrafen samt avresekalender. Fiktiva exempeldata.](demo-card-sv.png)
 
 ## Installera
 
@@ -52,7 +52,13 @@ För resurser som hanteras av Home Assistant flyttar integrationen automatiskt i
 
 Om resurserna är konfigurerade i YAML ersätter du det gamla kortets resursadress med den inbyggda adressen ovan och startar om Home Assistant. Behåll endast en resurs för Motorvärmare-kortet: om den gamla och nya JavaScript-filen laddas samtidigt kan den äldre versionen användas. Om du har använt en annan anpassad adress tar du bort den gamla resursen manuellt, laddar om webbläsaren och kontrollerar att det inbyggda kortet visas.
 
+För två bilar på samma kontrollpanel, lägg till **Motorvärmare – översikt**, välj bilarnas statusentiteter och välj **Bilkort med automatisk bredd**. När utrymmet räcker visas två kolumner. På en smal telefon hamnar bilarna under varandra. Har du två kort i en fast horisontell stapel, ersätt stapeln med det här kortet och välj samma bilar. Välj **Kompakt lista** om du vill se en sammanfattning och öppna en bil i taget.
+
 ## Avresor och kalender
+
+Den stora kalendern öppnas på vald dag på mobilen och i veckovy på större skärmar. Växla mellan dag och vecka eller bläddra med pilarna, även upp till 31 dagar bakåt. Båda knapparna för ny avresa använder vald dag. När du tar bort en avresa har du tio sekunder att ångra eller bekräfta direkt. Om du lämnar kortet under de tio sekunderna avbryts borttagningen.
+
+Lokala engångsavresor sparas i 31 dygn. När en ny avslutad körning säkert kan kopplas till en avresa visas faktisk gångtid och tillgänglig energi och kostnad vid avresan. Äldre körningar och körningar med överlappande avresor finns i värmehistoriken.
 
 Kortet visar sju lokala kalenderdagar i taget, med möjlighet att bläddra framåt. Här syns avresor samt uppskattad start och avstängning för värmaren. Starttiderna är **uppskattningar** och kan ändras när temperaturen ändras. En avresa från veckoschema, Google-kalender eller den egna kalendern kan visas här.
 

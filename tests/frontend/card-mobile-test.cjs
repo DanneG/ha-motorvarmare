@@ -88,6 +88,9 @@ async function main() {
     await page.evaluate(()=>{document.querySelector('motorvarmare-card').hass={...window.hass};});
     assert.equal(await card.locator(`[data-mobile-day="${fixture.fourth}"]`).getAttribute('aria-pressed'),'true','A chosen day with no departures must also survive updates');
     await card.locator(`[data-mobile-day="${fixture.tomorrow}"]`).click();
+    await card.locator('#new-departure').click();
+    assert.equal(await card.locator('#calendar-date').inputValue(),fixture.tomorrow);
+    await card.locator('#cancel-calendar').click();
     await card.locator(`[data-add-day="${fixture.tomorrow}"]:visible`).click();
     await card.locator('#calendar-time').fill('11:15');
     await card.locator('#add-calendar').click();
@@ -95,6 +98,7 @@ async function main() {
     assert.deepEqual(add,{domain:'calendar',service:'create_event',data:{entity_id:'calendar.car_schedule',summary:'Avresa',start_date_time:`${fixture.tomorrow}T11:15:00`,end_date_time:`${fixture.tomorrow}T11:16:00`}});
     await card.locator(`[data-mobile-day="${fixture.today}"]`).click();
     await card.locator('.mobile-events [data-remove-uid="afternoon"]').click();
+    await card.locator('#commit-removal').click();
     assert.deepEqual(await page.evaluate(()=>window.calls.shift()),{ws:{type:'calendar/event/delete',entity_id:'calendar.car_schedule',uid:'afternoon'}});
     await page.evaluate(()=>{window.hass.locale.language='en';document.querySelector('motorvarmare-card').hass={...window.hass};});
     assert.match(await card.locator('.wrap').innerText(),/Next 7 days/);

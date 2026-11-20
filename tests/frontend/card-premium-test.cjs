@@ -94,7 +94,7 @@ async function main() {
     assert.equal(await timeline.count(),0,'Paused automation must not show an active scheduled timeline');
     await page.evaluate(()=>{window.hass.states['switch.pause'].state='off';window.update({automation_paused:false,owned:true,active_until:'2026-11-05T12:45:00+01:00'},'heating','on');});
     assert.equal(await timeline.count(),0,'An active session must not be confused with a future departure');
-    assert.match(await card.locator('.quick-actions').first().innerText(),/12:45/);
+    assert.match(await card.locator('.active-milestones').innerText(),/12:45/);
     assert.equal(await card.locator('#stop-now').isVisible(),true);
 
     // Midnight-crossing heating appears on both selected local calendar days.

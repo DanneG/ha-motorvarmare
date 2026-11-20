@@ -91,6 +91,7 @@ async function main() {
     assert.equal(second.data.start_date_time,`${tomorrow}T14:30:00`);
     assert.equal(second.data.end_date_time,`${tomorrow}T14:31:00`);
     await card.locator('.desktop-calendar [data-remove-uid="one"]').first().click();
+    await card.locator('#commit-removal').click();
     assert.deepEqual((await page.evaluate(()=>window.calls.shift())),{ws:{type:'calendar/event/delete',entity_id:'calendar.car_schedule',uid:'one'}});
     // Two simultaneous windows must remain independently visible. Intervals
     // crossing midnight must be drawn in both local-day columns, including a
@@ -149,6 +150,8 @@ async function main() {
     assert.match(await card.locator('.wrap').innerText(),/Could not turn off the switch; retrying; Calendar could not be read/);
     assert.doesNotMatch(await card.locator('.wrap').innerText(),/Kommande 7 dagar/);
     await page.evaluate(()=>{const a=window.hass.states['sensor.car_status'].attributes;a.schedule_7_days[1].start=a.schedule_7_days[0].start;a.current_duration_minutes=0;a.owned=false;window.hass.states['switch.car_heater'].state='off';document.querySelector('motorvarmare-card').hass={...window.hass};});
+    assert.doesNotMatch(await card.locator('.wrap').innerText(),/Overlapping times/);
+    await card.locator('.schedule-details summary').click();
     assert.match(await card.locator('.wrap').innerText(),/Overlapping times/);
     assert.match(await card.locator('.wrap').innerText(),/formula gives no heating time/);
     assert.equal(await card.locator('#start-now').isDisabled(),true);

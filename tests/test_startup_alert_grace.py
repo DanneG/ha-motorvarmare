@@ -130,6 +130,7 @@ class StartupGraceTests(unittest.TestCase):
     async def test_qualified_startup_low_waits_and_is_not_lost_after_window(self):
         allowed = False
         self.hass.states["sensor.power"] = mocks.State("0", "W")
+        self.hass.states["sensor.power"].last_reported = self.now
         config = {"switch_entity": "switch.heater", "power_entity": "sensor.power",
                   "power_min_watts": 10, "power_delay_minutes": 0,
                   "power_deviation_enabled": True, "power_expected_min_watts": 20,
@@ -154,6 +155,7 @@ class StartupGraceTests(unittest.TestCase):
     async def test_low_that_recovers_during_grace_never_reappears(self):
         allowed = False
         self.hass.states["sensor.power"] = mocks.State("0", "W")
+        self.hass.states["sensor.power"].last_reported = self.now
         config = {"switch_entity": "switch.heater", "power_entity": "sensor.power",
                   "power_min_watts": 10, "power_delay_minutes": 0,
                   "power_deviation_enabled": True, "power_expected_min_watts": 20,
@@ -178,6 +180,7 @@ class StartupGraceTests(unittest.TestCase):
     async def test_failed_mobile_retries_without_duplicate_persistent_alert(self):
         allowed = False
         self.hass.states["sensor.power"] = mocks.State("0", "W")
+        self.hass.states["sensor.power"].last_reported = self.now
         config = {"switch_entity": "switch.heater", "power_entity": "sensor.power",
                   "power_min_watts": 10, "power_delay_minutes": 0,
                   "notify_entity": "notify.phone"}
@@ -205,6 +208,7 @@ class StartupGraceTests(unittest.TestCase):
     async def test_deferred_startup_alert_retry_expires(self):
         allowed = False
         self.hass.states["sensor.power"] = mocks.State("0", "W")
+        self.hass.states["sensor.power"].last_reported = self.now
         config = {"switch_entity": "switch.heater", "power_entity": "sensor.power",
                   "power_min_watts": 10, "power_delay_minutes": 0,
                   "notify_entity": "notify.phone"}

@@ -68,6 +68,8 @@ class ActivePowerGraphTests(unittest.TestCase):
         await self.start()
         self.now += timedelta(minutes=1)
         await self.monitor.async_update()
+        # A clean shutdown flushes observations since the last checkpoint.
+        await self.monitor.async_shutdown()
         old_last = self.monitor.active_power_samples[-1]["at"]
         self.now += timedelta(minutes=10)
         restored = EnergyMonitor(self.hass, self.entry, self.config, lambda: None)

@@ -58,6 +58,14 @@ async function main() {
     const scheduled=await card.locator('.mobile-event').allInnerTexts();
     assert.equal(scheduled.length,2);
     for (const value of scheduled) assert.doesNotMatch(value,/1,25 kWh|2,75\s*SEK/,'Do not guess which overlapping departure caused the observed session');
+    await page.evaluate(()=>{
+      const h=window.hass, first=h.states['sensor.car_status'].attributes.heating_history[0];
+      first.departure_uid='one'; first.departure_time='2026-11-06T06:50:00Z';
+      document.querySelector('motorvarmare-card').hass={...h};
+    });
+    const linked=await card.locator('.mobile-event').allInnerTexts();
+    assert.match(linked[0],/Registrerad värmning.*1 tim 30 min.*1,25 kWh.*2,75\s*SEK/);
+    assert.doesNotMatch(linked[1],/1,25 kWh/,'A nearby unlinked departure must not inherit consumption');
     if (process.env.MOTORVARMARE_CALENDAR_HISTORY_PREVIEW_PATH) await page.screenshot({path:process.env.MOTORVARMARE_CALENDAR_HISTORY_PREVIEW_PATH,fullPage:true});
     await card.locator('[data-mobile-day="2026-11-07"]').click();
     assert.equal(await entries.count(),1,'UTC times are grouped using the Home Assistant timezone');

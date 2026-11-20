@@ -290,6 +290,11 @@ class HeaterStatus(SensorEntity):
             "error": controller.error,
             "owned": controller.owned,
             "active_until": controller.active_until,
+            "active_scheduled_departure": (
+                getattr(controller, "_active_departure", None)
+                if controller.owned and getattr(controller, "_active_source", None) not in (None, "Starta nu")
+                else None
+            ),
             "active_started_at": getattr(controller, "_started_at", None) if controller.owned else None,
             "active_max_until": (controller._started_at + timedelta(hours=4)) if controller.owned and getattr(controller, "_started_at", None) else None,
             "can_extend": getattr(controller, "can_extend", False),

@@ -45,7 +45,7 @@ async function render(browser, lang) {
       friendly_name:'Demo status', control_entities:controls, temperature:-5,
       current_duration_minutes:90, next_departure:events[0].departure, planned_start:events[0].start,
       post_departure_minutes:30, source:'Planerad', schedule_7_days:events,
-      owned:true, active_started_at:'2026-11-05T08:00:00Z', active_measurement_started_at:'2026-11-05T08:00:00Z',
+      owned:true, active_scheduled_departure:events[0].departure, active_started_at:'2026-11-05T08:00:00Z', active_measurement_started_at:'2026-11-05T08:00:00Z',
       active_until:'2026-11-05T10:00:00Z', active_max_until:'2026-11-05T12:00:00Z', can_extend:true,
       power_sensor_configured:true, energy_sensor_configured:true, power_w:780,
       session_energy_kwh:0.32, active_session_cost:0.64, active_session_currency:'SEK',

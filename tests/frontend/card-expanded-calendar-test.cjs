@@ -6,7 +6,7 @@ const path=require('node:path');
 async function exercise(browser,width) {
   const page=await browser.newPage({viewport:{width,height:780},isMobile:width<600,hasTouch:width<600});
   const errors=[]; page.on('pageerror',error=>errors.push(error.message));
-  await page.clock.setFixedTime(new Date('2026-11-05T08:00:00Z'));
+  await page.clock.install({time:new Date("2026-11-05T08:00:00Z")});
   await page.setContent('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="dashboard"><div class="before">Other cards</div><motorvarmare-card></motorvarmare-card><div class="after">Other cards</div></div></body></html>');
   await page.addStyleTag({content:'html,body{margin:0}#dashboard{height:100dvh;overflow:auto;font-family:Arial}.before{height:500px}.after{height:1200px}motorvarmare-card,ha-card{display:block}motorvarmare-card{margin:0 auto;width:min(100%,700px);--primary-text-color:#eee;--secondary-text-color:#bbb;--card-background-color:#17191b;--secondary-background-color:#293038;--divider-color:#555;--primary-color:#08bcd4;--text-primary-color:#111;background:#17191b}'});
   await page.evaluate(()=>{customElements.define('ha-card',class extends HTMLElement{});customElements.define('ha-icon',class extends HTMLElement{});});
@@ -36,6 +36,22 @@ async function exercise(browser,width) {
     await page.keyboard.press('Tab');
     assert.equal(await modal.evaluate(el=>el.contains(el.getRootNode().activeElement)),true,'Keyboard focus must remain inside the modal');
   }
+  assert.equal(await modal.locator('[data-grid-day]').count(),width<600 ? 1 : 7,'Default view follows screen width');
+  if (width<600) {
+    assert.equal(await modal.locator('.cal-scroll').evaluate(el=>el.scrollWidth<=el.clientWidth+1),true,'Single-day grid fits without sideways scrolling');
+    await modal.locator('#day-previous').click();
+    assert.equal(await modal.locator('[data-grid-day]').getAttribute('data-grid-day'),'2026-11-04','Browse archived departures in the previous week');
+    assert.equal(await modal.locator('#new-departure').isDisabled(),true,'Cannot add a new departure in the past');
+    await modal.locator('#day-today').click();
+    await modal.locator('#day-next').click();
+    assert.equal(await modal.locator('[data-grid-day]').getAttribute('data-grid-day'),'2026-11-06');
+    await modal.locator('#new-departure').click();
+    assert.equal(await modal.locator('#calendar-date').inputValue(),'2026-11-06');
+    assert.match(await modal.locator('#calendar-editor-title').innerText(),/6 nov/);
+    await modal.locator('#cancel-calendar').click();
+    await modal.locator('#day-previous').click();
+    await modal.locator('[data-calendar-mode="week"]').click();
+  }
   assert.equal(await modal.locator('[data-grid-day]').count(),7,'Week has seven columns');
   assert.ok(await modal.locator('.cal-hour').count()>=24,'Time axis contains daily hours');
   const days=await modal.locator('[data-grid-day]').evaluateAll(nodes=>nodes.map(node=>node.dataset.gridDay));
@@ -61,6 +77,14 @@ async function exercise(browser,width) {
   assert.equal(await modal.locator('#calendar-time').inputValue(),'12:00');
   await modal.locator('#cancel-calendar').click();
   await modal.locator('.cal-agenda [data-remove-uid="short"]').click();
+  assert.equal(await page.evaluate(()=>window.calls.some(x=>x.ws?.type==='calendar/event/delete')),false);
+  await modal.locator('#undo-removal').click();
+  assert.equal(await modal.locator('.cal-agenda [data-remove-uid="short"]').isVisible(),true,'Undo restores the event without modifying its ID or series data');
+  await modal.locator('.cal-agenda [data-remove-uid="short"]').click();
+  if (width<600) {
+    await page.clock.fastForward(11000);
+    await page.waitForFunction(()=>window.calls.some(x=>x.ws?.type==='calendar/event/delete'));
+  } else await modal.locator('#commit-removal').click();
   assert.ok(await page.evaluate(()=>window.calls.some(x=>x.ws?.type==='calendar/event/delete' && x.ws.uid==='short')));
   // Local calendar blocks are directly editable without leaving the dialog.
   await modal.locator('.cal-event button[data-edit-index]').first().click();
@@ -75,6 +99,12 @@ async function exercise(browser,width) {
   assert.equal(await modal.locator('[data-grid-day]').first().getAttribute('data-grid-day'),'2026-11-12');
   await modal.locator('#window-today').click();
   assert.equal(await modal.locator('[data-grid-day]').first().getAttribute('data-grid-day'),'2026-11-05');
+  for (let i=0;i<5;i++) await modal.locator('#window-previous').click();
+  assert.equal(await modal.locator('[data-grid-day]').first().getAttribute('data-grid-day'),'2026-10-05');
+  assert.equal(await modal.locator('#window-previous').isDisabled(),true,'Archive stops 31 days before today');
+  await modal.locator('#window-next').click();
+  assert.equal(await modal.locator('[data-grid-day]').first().getAttribute('data-grid-day'),'2026-10-08');
+  await modal.locator('#window-today').click();
   // Opening a day in the grid creates a normal editor in the large view.
   const scroll=modal.locator('.cal-scroll');
   await scroll.evaluate(el=>{el.scrollTop=8*64;el.scrollLeft=0;});
@@ -118,7 +148,7 @@ async function exercise(browser,width) {
   await page.evaluate(()=>{window.hass.locale.language='en';document.querySelector('motorvarmare-card').hass={...window.hass};});
   assert.match(await open.innerText(),/calendar/i,'Calendar action is translated');
   await open.click();
-  assert.match(await modal.innerText(),/calendar/i,'Expanded calendar is translated');
+  assert.match(await modal.innerText(),/Heating schedule/i,'Expanded calendar is translated');
   await modal.locator('#close-calendar').click();
   assert.deepEqual(errors,[]);
   await page.close();
