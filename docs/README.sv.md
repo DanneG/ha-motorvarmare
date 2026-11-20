@@ -2,13 +2,31 @@
 
 [English](../README.md) · Svenska
 
+<!-- ha-marketplace:exclude-start -->
+[![Marketplace](https://img.shields.io/badge/Marketplace-tillg%C3%A4nglig-03A9F4?style=for-the-badge&logo=homeassistant&logoColor=white)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=DanneG&repository=ha-motorvarmare&category=integration)
+[![HACS Default](https://img.shields.io/badge/HACS-Default-orange?style=for-the-badge)](https://github.com/hacs/default)
+[![Senaste release](https://img.shields.io/github/v/release/DanneG/ha-motorvarmare?style=for-the-badge&label=release)](https://github.com/DanneG/ha-motorvarmare/releases/latest)
+[![Validering på main](https://img.shields.io/github/actions/workflow/status/DanneG/ha-motorvarmare/validate.yml?branch=main&style=for-the-badge&label=validering)](https://github.com/DanneG/ha-motorvarmare/actions/workflows/validate.yml)
+[![Aktivitet senaste året](https://img.shields.io/github/commit-activity/y/DanneG/ha-motorvarmare?style=for-the-badge&label=aktivitet)](https://github.com/DanneG/ha-motorvarmare/commits/main/)
+[![Licens](https://img.shields.io/github/license/DanneG/ha-motorvarmare?style=for-the-badge&label=licens)](https://github.com/DanneG/ha-motorvarmare/blob/main/LICENSE)
+<!-- ha-marketplace:exclude-end -->
+
 Motorvärmare planerar en elektrisk motorvärmare utifrån en utetemperatursensor och en avresetid. Varje bil har en egen smartplugg eller brytare som fungerar i Home Assistant samt egna avresor. Inställningsformulär, entiteter och tillhörande kort stöder svenska och engelska.
 
 ![Motorvärmarkort med pågående värmning och kalender, visat med fiktiva exempeldata](demo-card-sv.png)
 
 ## Installera
 
-Lägg till `https://github.com/DanneG/ha-motorvarmare` som eget förråd i Marketplace eller HACS med kategorin **Integration** och installera det. Starta om Home Assistant vid uppdatering. Lägg sedan till **Motorvärmare** under **Inställningar → Enheter och tjänster** en gång per bil. Välj bilens brytare och en utetemperatursensor i °C eller °F. En Google-kalender kan väljas separat.
+<!-- ha-marketplace:exclude-start -->
+- **Home Assistant 2026.11 eller senare:** Öppna **Marketplace**, sök efter **Motorvärmare** och installera integrationen.
+- **Äldre versioner:** Öppna **HACS**, sök efter **Motorvärmare** och installera integrationen. [Öppna i HACS](https://my.home-assistant.io/redirect/hacs_repository/?owner=DanneG&repository=ha-motorvarmare&category=integration).
+
+[![Öppna i Home Assistant Marketplace](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=DanneG&repository=ha-motorvarmare&category=integration)
+
+Om du inte hittar integrationen i katalogen kan du lägga till `https://github.com/DanneG/ha-motorvarmare` som ett anpassat förråd i Marketplace eller HACS med kategorin **Integration** och sedan installera den.
+<!-- ha-marketplace:exclude-end -->
+
+Starta om Home Assistant efter installation eller uppdatering. Lägg sedan till **Motorvärmare** under **Inställningar → Enheter och tjänster** en gång per bil. Välj bilens brytare och en utetemperatursensor i °C eller °F. En Google-kalender kan väljas separat.
 
 Kortet ingår i integrationen. När Home Assistant hanterar kontrollpanelens resurser registrerar integrationen kortet automatiskt vid uppstart. När integrationen är konfigurerad, ladda om webbläsaren eller Home Assistant-appen, lägg till **Motorvärmare** på en kontrollpanel och välj bilens statusentitet. Lägg till ett kort per bil eller använd **Motorvärmare – översikt** för att se flera bilar tillsammans.
 

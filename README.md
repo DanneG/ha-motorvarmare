@@ -2,13 +2,32 @@
 
 English · [Svenska](docs/README.sv.md)
 
+<!-- ha-marketplace:exclude-start -->
+[![Marketplace: available](https://img.shields.io/badge/Marketplace-available-03A9F4?style=for-the-badge&logo=homeassistant&logoColor=white)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=DanneG&repository=ha-motorvarmare&category=integration)
+[![HACS Default](https://img.shields.io/badge/HACS-Default-orange?style=for-the-badge)](https://github.com/hacs/default)
+[![Latest release](https://img.shields.io/github/v/release/DanneG/ha-motorvarmare?style=for-the-badge&label=release)](https://github.com/DanneG/ha-motorvarmare/releases/latest)
+[![Validation on main](https://img.shields.io/github/actions/workflow/status/DanneG/ha-motorvarmare/validate.yml?branch=main&style=for-the-badge&label=validation)](https://github.com/DanneG/ha-motorvarmare/actions/workflows/validate.yml)
+[![Commit activity over the past year](https://img.shields.io/github/commit-activity/y/DanneG/ha-motorvarmare?style=for-the-badge&label=commits%2Fyear)](https://github.com/DanneG/ha-motorvarmare/commits/main/)
+[![License](https://img.shields.io/github/license/DanneG/ha-motorvarmare?style=for-the-badge&label=license)](https://github.com/DanneG/ha-motorvarmare/blob/main/LICENSE)
+<!-- ha-marketplace:exclude-end -->
+
 Schedule an electric engine heater using the outdoor temperature and a departure time. Each car has its own Home Assistant-compatible smart plug or switch and departure schedule. Configuration, entities and the companion dashboard card support English and Swedish.
 
 ![Motorvärmare dashboard card with an active heating session and calendar, shown with fictional example data](docs/demo-card-en.png)
 
 ## Installation
 
-Add `https://github.com/DanneG/ha-motorvarmare` as a custom repository in Marketplace or HACS with category **Integration**, then install it. Restart Home Assistant after updating. Under **Settings → Devices & services**, add **Motorvärmare** once for each car. Select the car's switch and an outdoor temperature sensor in °C or °F. A Google calendar is optional.
+<!-- ha-marketplace:exclude-start -->
+In Home Assistant 2026.11 or later, open **Settings → Marketplace**, search for **Motorvärmare**, and install the integration. On earlier Home Assistant versions, search for it in **HACS** instead.
+
+[![Open Motorvärmare in Home Assistant Marketplace](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=DanneG&repository=ha-motorvarmare&category=integration)
+
+The Marketplace button requires Home Assistant 2026.11 or later. For earlier versions, use the [HACS repository link](https://my.home-assistant.io/redirect/hacs_repository/?owner=DanneG&repository=ha-motorvarmare&category=integration).
+
+If the integration is not yet available in your catalog, add `https://github.com/DanneG/ha-motorvarmare` as a custom repository in Marketplace or HACS with category **Integration**, then install it.
+<!-- ha-marketplace:exclude-end -->
+
+Restart Home Assistant after installation or updating. Under **Settings → Devices & services**, add **Motorvärmare** once for each car. Select the car's switch and an outdoor temperature sensor in °C or °F. A Google calendar is optional.
 
 The dashboard card is included with the integration. When dashboard resources are managed by Home Assistant, the integration registers the card automatically during setup. After the integration is configured, reload your browser or Home Assistant app, add **Motorvärmare** to a dashboard, and select the car's status entity. Add one card per car, or use **Motorvärmare – översikt** to show several cars together.
 
