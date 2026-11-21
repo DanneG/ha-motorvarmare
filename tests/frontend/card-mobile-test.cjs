@@ -68,7 +68,7 @@ async function main() {
     await card.evaluate(el=>{el.style.width='400px';});
     await card.locator('.mobile-day').first().waitFor({state:'visible'});
     assert.equal(await card.locator('.mobile-day').count(),7);
-    assert.equal(await card.locator(`[data-mobile-day="${fixture.today}"]`).getAttribute('aria-pressed'),'true','Choose the nearest departure day, not the midnight segment of a later event');
+    assert.equal(await card.locator(`[data-mobile-day="${fixture.today}"]`).getAttribute('aria-pressed'),'true','Today remains selected after the schedule arrives');
     assert.equal(await card.locator('.mobile-events .mobile-event').count(),2,'Both departures are visible on the selected day');
     assert.match(await card.locator('.mobile-events').innerText(),/09:31/);
     assert.match(await card.locator('.mobile-events').innerText(),/10:00/);

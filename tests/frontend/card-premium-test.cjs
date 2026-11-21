@@ -72,6 +72,8 @@ async function main() {
     await page.clock.setFixedTime(new Date('2027-10-30T09:30:00Z'));
     const dstEvent={start:'2027-10-31T02:50:00+02:00',departure:'2027-10-31T02:10:00+01:00',end:'2027-10-31T03:10:00+01:00',source:'Planerad',duration_minutes:80};
     await page.evaluate(event=>window.update({next_departure:event.departure,planned_start:event.start,schedule_7_days:[event]}),dstEvent);
+    // The previously pinned date is now older than the 31-day archive.
+    assert.equal(await card.locator('[data-mobile-day][aria-pressed="true"]').getAttribute('data-mobile-day'),'2027-10-30','An expired selection must return to today');
     assert.match(await start.innerText(),/02:50[\s\S]*(?:GMT|UTC)\+0?2\b/);
     assert.match(await departure.innerText(),/02:10[\s\S]*(?:GMT|UTC)\+0?1\b/);
     assert.match(await stop.innerText(),/03:10[\s\S]*(?:GMT|UTC)\+0?1\b/);
@@ -80,6 +82,7 @@ async function main() {
     assert.match(dstCalendar,/02:50[\s\S]*(?:GMT|UTC)\+0?2\b/);
     assert.match(dstCalendar,/02:10[\s\S]*(?:GMT|UTC)\+0?1\b/);
     assert.match(dstCalendar,/03:10[\s\S]*(?:GMT|UTC)\+0?1\b/);
+    await card.getByRole('button',{name:'Till i dag',exact:true}).click();
     await page.clock.setFixedTime(new Date('2026-11-05T09:30:00Z'));
     await page.evaluate(event=>window.update({next_departure:event.departure,planned_start:event.start,schedule_7_days:[{...event,suppressed:true}]}),event);
     assert.equal(await stop.count(),0,'A skipped trip must not present a scheduled heating stop');

@@ -13,7 +13,7 @@ English · [Svenska](docs/README.sv.md)
 
 Schedule an electric engine heater using the outdoor temperature and a departure time. Each car has its own Home Assistant-compatible smart plug or switch and departure schedule. Configuration, entities and the companion dashboard card support English and Swedish.
 
-![Active heating session showing remaining time, stop and extend buttons above the power graph, and the departure calendar. Fictional example data.](docs/demo-card-en.png)
+![Example car during a heating session, with a power graph and today's date marked in the departure calendar. Fictional data.](docs/demo-card-en.png)
 
 ## Installation
 
@@ -57,7 +57,9 @@ For a dashboard with two cars, add **Motorvärmare – översikt / Engine heater
 
 ## Departures and calendar
 
-The expanded calendar opens on the selected day on a phone and shows the week on a larger screen. Switch between Day and Week or use the arrows to browse, including up to 31 days back. Both add buttons use the selected day. Removing a departure gives you 10 seconds to undo or confirm immediately. Leaving the card during this period cancels the pending removal.
+Each car's calendar opens on **today** in Home Assistant's time zone. Today has a ring and a text label. A filled date shows the day you selected. The next departure stays visible at the top of the card. Choose a different day to plan ahead, or use the calendar's today button to return. Both add buttons identify the target day. The save button shows the departure date and time.
+
+The expanded calendar opens on the selected day on a phone and shows the week on a larger screen. Switch between Day and Week or use the arrows to browse, including up to 31 days back. Removing a departure gives you 10 seconds to undo or confirm immediately. Leaving the card during this period cancels the pending removal.
 
 Local one-time departures are retained for 31 days. When a new completed session can be tied to a single departure, its measured duration and available energy and cost appear with it. Older sessions and sessions with overlapping departures remain in heating history.
 

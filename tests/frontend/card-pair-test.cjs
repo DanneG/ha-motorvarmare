@@ -2,19 +2,81 @@ const { chromium } = require('playwright');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
+async function checkCalendarSelection(page, garage, norr, language, mobile) {
+  const swedish = language === 'sv';
+  const today = '2026-11-20';
+  const monday = '2026-11-23';
+  const tuesday = '2026-11-24';
+  const dayButton = (card, key) => card.locator(`[data-mobile-day="${key}"]`);
+  const todayText = swedish ? /i dag/i : /today/i;
+  const mondayText = swedish ? /mån.*23 nov/i : /Mon.*23 Nov/i;
+  const goToday = swedish ? 'Till i dag' : 'Go to today';
+  for (const card of [garage, norr]) {
+    const current = dayButton(card, today);
+    assert.equal(await current.getAttribute('aria-current'), 'date');
+    assert.equal(await current.getAttribute('aria-pressed'), 'true', 'Both cars open on today although their next departure is Monday');
+    assert.match(await current.innerText(), todayText, 'The current date has a visible, localized label');
+    assert.match(await card.locator('#new-departure').innerText(), todayText);
+    assert.match(await card.locator('.mobile-add').innerText(), todayText);
+    assert.match(await card.locator('.mobile-events').innerText(), swedish ? /inga? |ingen /i : /no /i);
+  }
+  await garage.locator('#new-departure').click();
+  assert.equal(await garage.locator('#calendar-date').inputValue(), today);
+  await garage.locator('#cancel-calendar').click();
+  await dayButton(garage, monday).click();
+  assert.equal(await dayButton(garage, today).getAttribute('aria-current'), 'date', 'Today remains independently marked');
+  assert.equal(await dayButton(garage, today).getAttribute('aria-pressed'), 'false');
+  assert.equal(await dayButton(garage, monday).getAttribute('aria-pressed'), 'true');
+  assert.notEqual(await dayButton(garage, monday).getAttribute('aria-current'), 'date');
+  assert.equal(await dayButton(norr, today).getAttribute('aria-pressed'), 'true', 'Choosing a day on Garage must not change Norr');
+  assert.match(await garage.locator('#new-departure').innerText(), mondayText);
+  assert.match(await garage.locator('.mobile-add').innerText(), mondayText);
+  await garage.locator('.mobile-add').click();
+  assert.equal(await garage.locator('#calendar-date').inputValue(), monday);
+  await garage.locator('#calendar-date').fill(tuesday);
+  await garage.locator('#calendar-time').fill('09:15');
+  const saveText = await garage.locator('#add-calendar').innerText();
+  assert.match(saveText, swedish ? /Spara.*tis.*24 nov.*kl\.\s*09:15/i : /Save.*Tue.*24 Nov.*at\s+09:15/i);
+  assert.equal(await garage.locator('#calendar-time').evaluate(el => el.getRootNode().activeElement === el), true, 'Updating the save label keeps focus in the time field');
+  await garage.locator('#cancel-calendar').click();
+  await page.evaluate(() => {
+    const ha = window.mockHA;
+    const status = ha.states['sensor.garage'];
+    ha.states = {...ha.states, 'sensor.garage': {...status, attributes: {...status.attributes, temperature: -2}}};
+    document.querySelector('motorvarmare-overview').hass = {...ha};
+  });
+  assert.equal(await dayButton(garage, monday).getAttribute('aria-pressed'), 'true');
+  await garage.locator('#open-calendar').click();
+  const dialog = garage.locator('dialog[open]');
+  if (mobile) {
+    assert.equal(await dialog.locator('[data-grid-day]').getAttribute('data-grid-day'), monday, 'The expanded day view opens on the same date');
+    await dialog.locator('[data-calendar-mode="week"]').click();
+  }
+  const weekDay = key => dialog.locator(`[data-grid-select-day="${key}"]`);
+  assert.equal(await weekDay(today).getAttribute('aria-current'), 'date');
+  assert.equal(await weekDay(monday).getAttribute('aria-pressed'), 'true');
+  await weekDay(tuesday).click();
+  await dialog.locator('#close-calendar').click();
+  assert.equal(await dayButton(garage, tuesday).getAttribute('aria-pressed'), 'true', 'Week header selection is reflected on the card');
+  await garage.getByRole('button', {name: goToday, exact: true}).click();
+  assert.equal(await dayButton(garage, today).getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.evaluate(() => window.calls.filter(c => c.domain || c.type === 'calendar/event/create').length), 0, 'Date selection and cancellation must not create a departure');
+}
+
 async function check(browser, width, mobile) {
-  const page = await browser.newPage({ viewport: { width, height: 830 }, isMobile: mobile, hasTouch: mobile });
+  const page = await browser.newPage({ viewport: { width, height: 830 }, isMobile: mobile, hasTouch: mobile, timezoneId:'America/Los_Angeles' });
+  const language = width === 844 ? 'en' : 'sv';
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
-  await page.clock.setFixedTime(new Date('2026-11-20T10:00:00Z'));
+  await page.clock.install({time:new Date('2026-11-20T10:00:00Z')});
   await page.setContent('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;font:14px Arial}main{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;padding:8px}ha-card,motorvarmare-card{display:block;min-width:0}aside{height:600px}</style><main></main><aside></aside>');
   await page.addScriptTag({path:path.resolve(__dirname,'../../custom_components/motorvarmare/www/ha-motorvarmare-card.js')});
-  await page.evaluate(() => {
+  await page.evaluate(language => {
     window.calls = [];
     const states = {};
     const entity = (id,state,attributes={}) => states[id]={entity_id:id,state,attributes};
     window.mockHA = {
-      language:'sv', locale:{language:'sv'}, config:{time_zone:'Europe/Stockholm'}, states,
+      language, locale:{language}, config:{time_zone:'Europe/Stockholm'}, states,
       async callService(domain,service,data){window.calls.push({domain,service,data});},
       async callWS(data){window.calls.push(data);return {events:[],calendar_error:false};}
     };
@@ -23,13 +85,14 @@ async function check(browser, width, mobile) {
       entity(controls.heater_switch,'off');
       entity(controls.calendar,'off');
       for(const key of ['start_now','stop_now','extend_30']) entity(controls[key],'unknown');
-      entity('sensor.'+id,'waiting_to_start',{friendly_name:id,control_entities:controls,temperature:-1.4,current_duration_minutes:69,next_departure:'2026-11-23T06:50:00Z',planned_start:'2026-11-23T05:41:00Z',schedule_7_days:[],schedule_query_supported:true});
+      const event={departure:'2026-11-23T06:50:00Z',start:'2026-11-23T05:41:00Z',end:'2026-11-23T06:50:00Z',source:'Planerad',duration_minutes:69};
+      entity('sensor.'+id,'waiting_to_start',{friendly_name:id,control_entities:controls,temperature:-1.4,current_duration_minutes:69,next_departure:event.departure,planned_start:event.start,schedule_7_days:[event],schedule_query_supported:true});
     }
     const overview=document.createElement('motorvarmare-overview');
     overview.setConfig({entities:['sensor.garage','sensor.norr'],layout:'cards'});
     overview.hass=window.mockHA;
     document.querySelector('main').appendChild(overview);
-  });
+  }, language);
   const cards=page.locator('motorvarmare-card'), left=cards.nth(0), right=cards.nth(1);
   assert.equal(await cards.count(),2);
   const positions=await cards.evaluateAll(els=>els.map(el=>({x:el.offsetLeft,y:el.offsetTop,width:el.clientWidth})));
@@ -37,9 +100,10 @@ async function check(browser, width, mobile) {
   if(width>=800) assert.equal(positions[0].y,positions[1].y);
   else assert.ok(positions[1].y>positions[0].y);
   assert.deepEqual(await cards.locator('.title').allTextContents(),['garage','norr']);
+  await checkCalendarSelection(page, left, right, language, width < 600);
   await left.locator('#start-now').click({timeout:3500});
   await right.locator('#start-now').click({timeout:3500});
-  assert.deepEqual(await page.evaluate(()=>window.calls.map(x=>x.data.entity_id)),['button.start_garage','button.start_norr']);
+  assert.deepEqual(await page.evaluate(()=>window.calls.filter(x=>x.domain).map(x=>x.data.entity_id)),['button.start_garage','button.start_norr']);
   await right.locator('[data-main-tab="energy"]').click();
   assert.equal(await left.locator('[data-main-tab="calendar"]').getAttribute('aria-pressed'),'true');
   await left.locator('#open-calendar').click();
@@ -84,6 +148,17 @@ async function check(browser, width, mobile) {
     return [start,window.scrollY];
   });
   assert.ok(scroll[0]>0 && Math.abs(scroll[0]-scroll[1])<3,JSON.stringify(scroll));
+  if (width === 390) {
+    await right.locator('[data-main-tab="calendar"]').click();
+    await left.locator('[data-mobile-day="2026-11-25"]').click();
+    await page.clock.setSystemTime(new Date('2026-11-20T22:59:55Z'));
+    await page.clock.fastForward(65_000);
+    for (const card of [left, right]) {
+      assert.equal(await card.locator('[data-mobile-day][aria-current="date"]').getAttribute('data-mobile-day'),'2026-11-21','Midnight follows the Home Assistant timezone even without sensor updates');
+    }
+    assert.equal(await right.locator('[data-mobile-day][aria-pressed="true"]').getAttribute('data-mobile-day'),'2026-11-21','The untouched calendar follows today');
+    assert.equal(await left.locator('[data-mobile-day][aria-pressed="true"]').getAttribute('data-mobile-day'),'2026-11-25','An explicit future day survives midnight');
+  }
   assert.deepEqual(errors,[]);
   console.log(width+'px: start/extend/stop isolated, tabs/modal independent, departure for garage only, scroll '+JSON.stringify(scroll));
   await page.close();

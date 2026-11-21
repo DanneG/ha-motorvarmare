@@ -132,6 +132,9 @@ async function main() {
     },cases);
     assert.ok(geometry.first.top < geometry.second.bottom && geometry.second.top < geometry.first.bottom,'Overlapping intervals must overlap vertically');
     assert.ok(geometry.first.right <= geometry.second.left || geometry.second.right <= geometry.first.left,'Overlapping intervals must be placed in separate lanes');
+    // The preceding interactions pinned tomorrow. Follow today again before
+    // switching the fixture clock to the week of the autumn DST transition.
+    await card.getByRole('button',{name:'Till i dag',exact:true}).click();
     await page.clock.setFixedTime(new Date('2026-10-24T12:00:00Z'));
     await page.evaluate(()=>{const a=window.hass.states['sensor.car_status'].attributes;a.schedule_7_days=[{start:'2026-10-25T02:50:00+02:00',departure:'2026-10-25T02:20:00+01:00',source:'Planerad',uid:'dst',removable:true,duration_minutes:30}];document.querySelector('motorvarmare-card').hass={...window.hass};});
     const fallback=card.locator('[data-departure="2026-10-25T02:20:00+01:00"]');

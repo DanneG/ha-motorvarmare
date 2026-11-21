@@ -13,7 +13,7 @@
 
 Motorvärmare planerar en elektrisk motorvärmare utifrån en utetemperatursensor och en avresetid. Varje bil har en egen smartplugg eller brytare som fungerar i Home Assistant samt egna avresor. Inställningsformulär, entiteter och tillhörande kort stöder svenska och engelska.
 
-![Pågående värmning med återstående tid, stopp- och förlängningsknappar ovanför effektgrafen samt avresekalender. Fiktiva exempeldata.](demo-card-sv.png)
+![Exempelbil under värmning med effektkurva och dagens datum markerat i avresekalendern. Fiktiva uppgifter.](demo-card-sv.png)
 
 ## Installera
 
@@ -56,7 +56,9 @@ För två bilar på samma kontrollpanel, lägg till **Motorvärmare – översik
 
 ## Avresor och kalender
 
-Den stora kalendern öppnas på vald dag på mobilen och i veckovy på större skärmar. Växla mellan dag och vecka eller bläddra med pilarna, även upp till 31 dagar bakåt. Båda knapparna för ny avresa använder vald dag. När du tar bort en avresa har du tio sekunder att ångra eller bekräfta direkt. Om du lämnar kortet under de tio sekunderna avbryts borttagningen.
+Varje bils kalender öppnas på **i dag** enligt Home Assistants tidszon. Dagens datum har en ring och texten **I dag**. En fylld cirkel visar vilken dag du har valt. Nästa avresa syns högst upp på kortet. Du kan välja en annan dag och gå tillbaka med **Till i dag**. Båda knapparna för att lägga till en avresa visar vilken dag det gäller. På sparknappen ser du avresans datum och klockslag.
+
+Den stora kalendern öppnas på vald dag på mobilen och i veckovy på större skärmar. Växla mellan dag och vecka eller bläddra med pilarna, även upp till 31 dagar bakåt. När du tar bort en avresa har du tio sekunder att ångra eller bekräfta direkt. Om du lämnar kortet under de tio sekunderna avbryts borttagningen.
 
 Lokala engångsavresor sparas i 31 dygn. När en ny avslutad körning säkert kan kopplas till en avresa visas faktisk gångtid och tillgänglig energi och kostnad vid avresan. Äldre körningar och körningar med överlappande avresor finns i värmehistoriken.
 

@@ -28,6 +28,8 @@ MV_I18N.en.estimate = "Individual estimates based on the current outdoor tempera
 MV_I18N.sv.overlap = "Överlappande tider kan gå ihop. En säkerhetsgräns på fyra timmar gäller för en sammanhängande körning.";
 Object.assign(MV_I18N.sv,{newDeparture:"Ny avresa",calendarDay:"Dag",calendarWeek:"Vecka",previousDay:"Föregående dag",nextDay:"Nästa dag",scheduleDetails:"Visa detaljer",undo:"Ångra",removeNow:"Ta bort nu",removalPending:"Avresan tas bort efter 10 sekunder om sidan är öppen.",seriesRemovalPending:"Serien tas bort efter 10 sekunder om sidan är öppen.",recorded:"Registrerad värmning"});
 Object.assign(MV_I18N.en,{newDeparture:"New departure",calendarDay:"Day",calendarWeek:"Week",previousDay:"Previous day",nextDay:"Next day",scheduleDetails:"Show details",undo:"Undo",removeNow:"Remove now",removalPending:"Departure will be removed after 10 seconds if this page stays open.",seriesRemovalPending:"Series will be removed after 10 seconds if this page stays open.",recorded:"Recorded heating"});
+Object.assign(MV_I18N.sv,{addDepartureToday:"Lägg till avresa i dag",atTime:"kl.",noDeparturesToday:"Inga avresor i dag"});
+Object.assign(MV_I18N.en,{addDepartureToday:"Add departure today",atTime:"at",noDeparturesToday:"No departures today"});
 MV_I18N.en.overlap = "Overlapping times may run together. A four-hour safety limit applies to a continuous session.";
 MV_I18N.sv.runtimeFor = "Värmer i"; MV_I18N.en.runtimeFor = "Heats for";
 MV_I18N.sv.runtimeOff = "stängs sedan av automatiskt."; MV_I18N.en.runtimeOff = "then turns off automatically.";
@@ -73,7 +75,7 @@ MV_I18N.sv.historyShowMore = "Visa fler"; MV_I18N.en.historyShowMore = "Show mor
 MV_I18N.sv.historyLessMinute = "under 1 min"; MV_I18N.en.historyLessMinute = "under 1 min";
 MV_I18N.sv.calendarPrevious="Föregående vecka"; MV_I18N.en.calendarPrevious="Previous week";
 MV_I18N.sv.calendarNext="Nästa vecka"; MV_I18N.en.calendarNext="Next week";
-MV_I18N.sv.calendarToday="I dag"; MV_I18N.en.calendarToday="Today";
+MV_I18N.sv.calendarToday="Till i dag"; MV_I18N.en.calendarToday="Go to today";
 MV_I18N.sv.calendarLoading="Hämtar kalendern…"; MV_I18N.en.calendarLoading="Loading calendar…";
 MV_I18N.sv.calendarFailed="Kalendern kunde inte hämtas. Försök igen."; MV_I18N.en.calendarFailed="The calendar could not be loaded. Try again.";
 MV_I18N.sv.calendarPartial="Den externa kalendern kunde inte läsas; vissa avresor kan saknas."; MV_I18N.en.calendarPartial="The external calendar could not be read; some departures may be missing.";
@@ -225,7 +227,7 @@ class MotorvarmareCard extends HTMLElement {
     this._activeView = "calendar"; this._showPowerGraph=true;
     this._calendarAnchored = false; this._calendarUserScrolled = false; this._desktopPosition = null;
     this._calendarExpanded = false; this._calendarPlaceholderHeight = 0;
-    this._mobileDay = null; this._mobileDayChosen = false;
+    this._mobileDay = null; this._mobileDayChosen = false; this._calendarToday = null;
     this.shadowRoot.addEventListener("focusout", () => setTimeout(() => {
       const focused = this.shadowRoot.activeElement;
       if (this._refreshAfterFocus && (!focused || !["INPUT", "SELECT"].includes(focused.tagName))) {
@@ -238,6 +240,10 @@ class MotorvarmareCard extends HTMLElement {
     // has no other state changes; avoid periodic re-renders in between.
     if (!this._transitionTimer) this._transitionTimer=setInterval(()=>{
       this._updateActiveProgress();
+      if (this._hass && this._calendarToday && this._dayKey(new Date().toISOString()) !== this._calendarToday) {
+        this.hass = this._hass;
+        return;
+      }
       if (!(this._nextCalendarTransition <= Date.now())) return;
       const focused=this.shadowRoot.activeElement;
       if (focused && ["INPUT","SELECT"].includes(focused.tagName)) this._refreshAfterFocus=true;
@@ -288,14 +294,26 @@ class MotorvarmareCard extends HTMLElement {
   }
   set hass(value) {
     this._hass = value;
+    const today = this._dayKey(new Date().toISOString());
+    const dayChanged = this._calendarToday && this._calendarToday !== today;
+    this._calendarToday = today;
+    if (dayChanged && this._mobileDayChosen && !this._dayKeys().includes(this._mobileDay)) {
+      // Keep an explicitly selected date visible as the rolling week moves.
+      const daysFromToday = (Date.parse(this._mobileDay) - Date.parse(today)) / 86400000;
+      if (daysFromToday < -31) {
+        this._changeCalendarWindow(null);
+        return;
+      }
+      this._windowOffset = Math.max(-31, Math.floor(daysFromToday / 7) * 7);
+    }
     if (!this._windowOffset && this._windowOverride && this._todayBaseSignature !== null) {
       const latest=JSON.stringify(value?.states?.[this._config.status_entity]?.attributes?.schedule_7_days ?? null);
       if (latest !== this._todayBaseSignature) {this._windowOverride=false;this._windowRequest++;this._windowLoading=false;this._windowError=null;}
     }
     // A displayed future window shifts when the local calendar day rolls over.
     // Never keep the previous day's events under the new date headers.
-    if (this._windowOffset && this._windowStart && this._dayKeys()[0] !== this._windowStart) {
-      this._windowEvents=null; this._loadCalendarWindow(); return;
+    if ((this._windowOffset || this._windowOverride) && (dayChanged || (this._windowStart && this._dayKeys()[0] !== this._windowStart))) {
+      this._windowEvents=null; this._loadCalendarWindow(true); return;
     }
     const currentAttributes=value?.states?.[this._config.status_entity]?.attributes;
     const forecastEnabled=!!currentAttributes?.weather_enabled;
@@ -408,12 +426,26 @@ class MotorvarmareCard extends HTMLElement {
     const [y,m,d] = today.split("-").map(Number);
     return Array.from({length:7}, (_,i) => new Date(Date.UTC(y,m-1,d+i+this._windowOffset,12)).toISOString().slice(0,10));
   }
-  _dayLabel(key, i) {
+  _calendarDateText(key, today=this._dayKey(new Date().toISOString())) {
     const date = new Date(`${key}T12:00:00Z`);
-    const text = new Intl.DateTimeFormat(mvLang(this._hass) === "sv" ? "sv-SE" : "en-GB", {timeZone:"UTC", weekday:"short", day:"numeric", month:"short"}).format(date);
+    if (!Number.isFinite(date.getTime())) return "";
+    const options = {timeZone:"UTC", weekday:"short", day:"numeric", month:"short"};
+    if (key.slice(0,4) !== today.slice(0,4)) options.year = "numeric";
+    return new Intl.DateTimeFormat(mvLang(this._hass) === "sv" ? "sv-SE" : "en-GB", options).format(date);
+  }
+  _dayLabel(key) {
     const today=this._dayKey(new Date().toISOString());
+    const text = this._calendarDateText(key,today);
     const tomorrow=today ? new Date(Date.parse(`${today}T12:00:00Z`)+86400000).toISOString().slice(0,10) : "";
     return key === today ? `${mvText(this._hass,"today")} · ${text}` : key === tomorrow ? `${mvText(this._hass,"tomorrow")} · ${text}` : text;
+  }
+  _saveDepartureLabel() {
+    const date = this._calendarDateText(this._editDate);
+    const save = mvText(this._hass,"save");
+    if (!date) return save;
+    return this._calendarTime
+      ? `${save} ${date} ${mvText(this._hass,"atTime")} ${this._calendarTime}`
+      : `${save} ${date}`;
   }
   _defaultCalendarTime(key) {
     const now=new Date(), current=this._inputDate(now.toISOString());
@@ -443,6 +475,7 @@ class MotorvarmareCard extends HTMLElement {
     return new Date(guess).toISOString();
   }
   _selectCalendarDay(key) {
+    this._mobileDay=key; this._mobileDayChosen=true;
     this._selectedDay=key; this._editDate=key; this._editSummary=""; this._editChoice=null; this._editContext=null; this._deleteRecurrence=null; this._calendarTime=this._defaultCalendarTime(key);
     this._repeatFreq="NONE"; this._repeatInterval=1; this._repeatUntil="";
     const weekday=new Date(`${key}T12:00:00Z`).getUTCDay();
@@ -460,6 +493,7 @@ class MotorvarmareCard extends HTMLElement {
     }
     const departureDay=this._dayKey(item.departure);
     this._selectedDay=this._dayKeys().includes(departureDay) ? departureDay : this._dayKeys()[0]; this._editDate=this._dayKey(raw); this._calendarTime=this._inputDate(raw).slice(11,16);
+    this._mobileDay=this._selectedDay; this._mobileDayChosen=true;
     this._editSummary=series ? item.series_summary : (item.summary || mvText(this._hass,"eventSummary")); this._editChoice=null; this._deleteRecurrence=null;
     this._editContext={uid:item.uid,recurrence_id:item.recurrence_id || null,series,occurrence:!!item.recurrence_id && !series}; this._editAcknowledged=false;
     this._repeatFreq=parts.FREQ || "NONE"; this._repeatInterval=parts.INTERVAL || 1;
@@ -493,11 +527,17 @@ class MotorvarmareCard extends HTMLElement {
     this._render();
   }
   _changeCalendarWindow(delta, selectedDay=null) {
+    if (delta===null && !this._windowOffset && this._dayKeys().includes(this._mobileDay)) {
+      this._mobileDayChosen=false; this._render(); return;
+    }
+    const previousIndex = Math.max(0, this._dayKeys().indexOf(this._mobileDay));
     // Keep normal weeks anchored to today when returning from the short
     // oldest window (-31 overlaps -28 by four days).
     this._windowOffset=delta===null ? 0 : this._windowOffset===-31 && delta===7
       ? -28 : Math.max(-31,this._windowOffset+delta);
-    this._selectedDay=null; this._editChoice=null; this._editContext=null; this._deleteRecurrence=null; this._mobileDayChosen=selectedDay!==null; this._mobileDay=selectedDay;
+    this._selectedDay=null; this._editChoice=null; this._editContext=null; this._deleteRecurrence=null;
+    this._mobileDayChosen=delta!==null;
+    this._mobileDay=selectedDay || this._dayKeys()[delta===null ? 0 : previousIndex];
     this._windowEvents=null; this._windowError=null; this._windowUnsupported=false; this._windowCalendarError=false; this._windowOverride=false; this._todayBaseSignature=null;
     if (this._windowOffset) this._loadCalendarWindow();
     else if (this._hass?.states?.[this._config.status_entity]?.attributes?.weather_enabled) this._loadCalendarWindow(true);
@@ -624,6 +664,7 @@ class MotorvarmareCard extends HTMLElement {
     const focusedHistory=["history-toggle", "history-more", "total-more", "window-previous", "window-next", "window-today"].includes(this.shadowRoot.activeElement?.id) ? this.shadowRoot.activeElement.id : null;
     const focusedTotal=this.shadowRoot.activeElement?.dataset?.totalPeriod;
     const focusedMobileDay=this.shadowRoot.activeElement?.dataset?.mobileDay;
+    const focusedGridDay=this.shadowRoot.activeElement?.dataset?.gridSelectDay;
     const oldScroll=this.shadowRoot.querySelector(".cal-scroll");
     const scrollPosition=this._initialCalendarScroll || (oldScroll && this.isConnected && oldScroll.clientHeight ? {top:oldScroll.scrollTop,left:oldScroll.scrollLeft} : this._desktopPosition);
     const agendaOpen=this._calendarExpanded ? !!this.shadowRoot.querySelector("#calendar-expanded .cal-agenda")?.open : !!this.shadowRoot.querySelector(".cal-agenda")?.open;
@@ -808,17 +849,20 @@ class MotorvarmareCard extends HTMLElement {
         }
       }
     }
-    // Anchor to the first upcoming departure, then its earliest visible
-    // segment. A later trip after midnight must not shift the view to 00:00.
-    const anchorItem = schedule.find(item => !completed(item) && !item.suppressed && segments.some(s => s.item === item))
-      || schedule.find(item => !completed(item) && segments.some(s => s.item === item));
-    const anchorSegment = anchorItem && segments.find(s => s.item === anchorItem);
     if (!dayKeys.includes(this._mobileDay)) { this._mobileDay = null; this._mobileDayChosen = false; }
-    if (!this._mobileDayChosen) this._mobileDay = anchorSegment?.key || dayKeys[0];
+    if (!this._mobileDayChosen) this._mobileDay = dayKeys[0];
     const dayView=this._calendarExpanded && this._calendarMode==="day";
     const visibleDays=dayView ? [this._mobileDay] : dayKeys;
+    // Upcoming trips can guide the time-axis scroll, never the selected date.
+    const visibleSegments=dayView ? segments.filter(s=>s.key===this._mobileDay) : segments;
+    const anchorSegment=visibleSegments.find(s=>!completed(s.item) && !s.item.suppressed)
+      || visibleSegments.find(s=>!completed(s.item));
     const todayDateKey=this._dayKey(new Date().toISOString());
     const canAddOn=key=>calendarOk && !this._pending && key>=todayDateKey;
+    const addDepartureLabel=key=>key===todayDateKey ? t("addDepartureToday") : `${t("addDay")} ${this._calendarDateText(key,todayDateKey)}`;
+    const selectedAddLabel=mvEscape(addDepartureLabel(this._mobileDay));
+    const editingCalendar=Boolean(this._selectedDay || this._editChoice || this._deleteRecurrence);
+    const choosingDateDisabled=editingCalendar ? "disabled" : "";
     const firstHour=0, lastHour=24;
     const gridHeight=(lastHour-firstHour)*hourHeight;
     const rows=Array.from({length:lastHour-firstHour+1},(_,i)=>`<div class="cal-hour" style="top:${i*hourHeight}px">${String(firstHour+i).padStart(2,"0")}:00</div>`).join("");
@@ -848,14 +892,14 @@ class MotorvarmareCard extends HTMLElement {
       }).join("");
       const dayDate=new Date(`${key}T12:00:00Z`), locale=mvLang(h)==="sv" ? "sv-SE" : "en-GB";
       const weekday=new Intl.DateTimeFormat(locale,{timeZone:"UTC",weekday:"short"}).format(dayDate);
-      return `<div class="cal-day"><div class="cal-day-head"><div class="cal-weekday">${mvEscape(weekday)}</div><div class="cal-date ${key===this._dayKey(new Date().toISOString()) ? "is-today" : ""}">${dayDate.getUTCDate()}</div><button class="add-day" data-add-day="${key}" aria-label="${t("addDay")} ${mvEscape(this._dayLabel(key,i))}" title="${t("addDay")}" ${!canAddOn(key) ? "disabled" : ""}>＋</button></div><div class="cal-column" data-grid-day="${key}" data-first-hour="${firstHour}" style="height:${gridHeight}px">${entries}</div></div>`;
+      return `<div class="cal-day"><div class="cal-day-head"><button type="button" class="calendar-day-choice" data-grid-select-day="${key}" aria-label="${mvEscape(this._dayLabel(key))}" aria-pressed="${key===this._mobileDay}" ${key===todayDateKey ? 'aria-current="date"' : ""} ${choosingDateDisabled}><span class="cal-weekday">${mvEscape(key===todayDateKey ? t("today") : weekday)}</span><strong class="cal-date">${dayDate.getUTCDate()}</strong></button><button class="add-day" data-add-day="${key}" aria-label="${mvEscape(addDepartureLabel(key))}" title="${mvEscape(addDepartureLabel(key))}" ${!canAddOn(key) ? "disabled" : ""}>＋</button></div><div class="cal-column" data-grid-day="${key}" data-first-hour="${firstHour}" style="height:${gridHeight}px">${entries}</div></div>`;
     }).join("");
     const repeatOptions=[["NONE",t("once")],["DAILY",t("daily")],["WEEKLY",t("weeklyRepeat")],["MONTHLY",t("monthly")],["YEARLY",t("yearly")]];
     const weekdayCodes=["MO","TU","WE","TH","FR","SA","SU"];
     const weekdayInputs=weekdayCodes.map((code,i)=>`<label class="repeat-day"><input type="checkbox" data-repeat-day="${code}" ${this._repeatDays.includes(code) ? "checked" : ""}>${mvEscape(days[i].slice(0,3))}</label>`).join("");
     const repeatFields=this._repeatFreq !== "NONE" ? `<label for="repeat-interval">${t("every")}</label><input id="repeat-interval" type="number" min="1" max="99" step="1" value="${mvEscape(this._repeatInterval)}">${this._repeatFreq === "WEEKLY" ? `<fieldset class="repeat-days"><legend>${t("repeatOn")}</legend>${weekdayInputs}</fieldset>` : ""}<label for="repeat-until">${t("until")}</label><input id="repeat-until" type="date" min="${mvEscape(this._editDate)}" value="${mvEscape(this._repeatUntil)}">` : "";
     const canRepeat=!this._editContext || !this._editContext.occurrence;
-    const calendarEditor=dayKeys.includes(this._selectedDay) ? `<div class="cal-editor calendar-form"><strong id="calendar-editor-title">${this._editContext ? t("editDeparture") : t("newDeparture")}${this._editDate ? " · "+mvEscape(this._dayLabel(this._editDate)) : ""}</strong><label for="calendar-date">${t("editDate")}</label><input id="calendar-date" type="date" value="${mvEscape(this._editDate)}"><label for="calendar-time">${t("depTime")}</label><input id="calendar-time" type="time" value="${mvEscape(this._calendarTime)}" ${this._pending ? "disabled" : ""}><label for="calendar-summary">${t("editTitle")}</label><input id="calendar-summary" type="text" value="${mvEscape(this._editSummary)}" placeholder="${t("eventSummary")}">${canRepeat ? `<label for="repeat-frequency">${t("recurrence")}</label><select id="repeat-frequency">${repeatOptions.map(([key,label])=>`<option value="${key}" ${key===this._repeatFreq ? "selected" : ""}>${label}</option>`).join("")}</select>${repeatFields}` : ""}${this._editContext?.series ? `<div class="series-warning">${t("seriesWarning")}</div><label class="series-confirm"><input id="confirm-series-change" type="checkbox" ${this._editAcknowledged ? "checked" : ""}>${t("seriesConfirm")}</label>` : ""}<button class="primary" id="add-calendar" ${!calendarOk || this._pending ? "disabled" : ""}>${this._editContext ? t("save") : t("add")}</button><button id="cancel-calendar" ${this._pending ? "disabled" : ""}>${t("cancel")}</button></div>` : "";
+    const calendarEditor=dayKeys.includes(this._selectedDay) ? `<div class="cal-editor calendar-form"><strong id="calendar-editor-title">${this._editContext ? t("editDeparture") : t("newDeparture")}${this._editDate ? " · "+mvEscape(this._dayLabel(this._editDate)) : ""}</strong><label for="calendar-date">${t("editDate")}</label><input id="calendar-date" type="date" value="${mvEscape(this._editDate)}"><label for="calendar-time">${t("depTime")}</label><input id="calendar-time" type="time" value="${mvEscape(this._calendarTime)}" ${this._pending ? "disabled" : ""}><label for="calendar-summary">${t("editTitle")}</label><input id="calendar-summary" type="text" value="${mvEscape(this._editSummary)}" placeholder="${t("eventSummary")}">${canRepeat ? `<label for="repeat-frequency">${t("recurrence")}</label><select id="repeat-frequency">${repeatOptions.map(([key,label])=>`<option value="${key}" ${key===this._repeatFreq ? "selected" : ""}>${label}</option>`).join("")}</select>${repeatFields}` : ""}${this._editContext?.series ? `<div class="series-warning">${t("seriesWarning")}</div><label class="series-confirm"><input id="confirm-series-change" type="checkbox" ${this._editAcknowledged ? "checked" : ""}>${t("seriesConfirm")}</label>` : ""}<div class="calendar-form-actions"><button class="primary" id="add-calendar" ${!calendarOk || this._pending ? "disabled" : ""}>${mvEscape(this._saveDepartureLabel())}</button><button id="cancel-calendar" ${this._pending ? "disabled" : ""}>${t("cancel")}</button></div></div>` : "";
     const deleteEditor=this._deleteRecurrence ? `<div class="cal-editor" role="group" aria-label="${t("deleteChoice")}"><strong>${t("deleteChoice")}</strong><button id="delete-one">${t("deleteOne")}</button><button id="delete-series">${t("deleteSeries")}</button><button id="delete-cancel">${t("cancel")}</button></div>` : "";
     const editEditor=this._editChoice ? `<div class="cal-editor" role="group" aria-label="${t("editChoice")}"><strong>${t("editChoice")}</strong><button id="edit-one">${t("deleteOne")}</button><button id="edit-series">${t("deleteSeries")}</button><button id="edit-cancel">${t("cancel")}</button></div>` : "";
     const agendaRows=schedule.filter(item=>visibleDays.includes(this._dayKey(item.departure))).map(item=>{
@@ -871,7 +915,7 @@ class MotorvarmareCard extends HTMLElement {
       const date=new Date(`${key}T12:00:00Z`), locale=mvLang(h)==="sv" ? "sv-SE" : "en-GB";
       const weekday=new Intl.DateTimeFormat(locale,{timeZone:"UTC",weekday:"short"}).format(date).replace(/\.$/,"");
       const hasEvents=segments.some(s=>s.key===key);
-      return `<button class="mobile-day" data-mobile-day="${key}" aria-label="${mvEscape(this._dayLabel(key,i))}" aria-pressed="${key===this._mobileDay}"><span>${mvEscape(weekday)}</span><strong>${date.getUTCDate()}</strong><i class="${hasEvents ? "has-events" : ""}" aria-hidden="true"></i></button>`;
+      return `<button class="mobile-day calendar-day-choice" data-mobile-day="${key}" aria-label="${mvEscape(this._dayLabel(key,i))}" aria-pressed="${key===this._mobileDay}" ${key===todayDateKey ? 'aria-current="date"' : ""} ${choosingDateDisabled}><span>${mvEscape(key===todayDateKey ? t("today") : weekday)}</span><strong>${date.getUTCDate()}</strong><i class="${hasEvents ? "has-events" : ""}" aria-hidden="true"></i></button>`;
     }).join("");
     const mobileEntries=segments.filter(s=>s.key===this._mobileDay).sort((a,b)=>a.from-b.from).map(({item,heat,endOnly})=>{
       const key=this._mobileDay;
@@ -885,7 +929,7 @@ class MotorvarmareCard extends HTMLElement {
       const recorded=recordedHeating(item);
       return `<div class="mobile-event ${heat ? "heating-event" : "marker-event"} ${completed(item) ? "is-past" : ""}" data-mobile-departure="${mvEscape(item.departure)}"><div><strong>${mvEscape(range)}</strong><div class="mobile-source">${mvEscape(departureLine)}</div>${recorded ? `<div class="mobile-source">${mvEscape(recorded)}</div>` : ""}</div>${edit}${remove}</div>`;
     }).join("");
-    const mobileCalendar=`<div class="mobile-calendar"><div class="mobile-days" role="group" aria-label="${t("selectDay")}">${mobileDays}</div><div class="mobile-selected"><strong>${mvEscape(this._dayLabel(this._mobileDay,dayKeys.indexOf(this._mobileDay)))}</strong><button class="mobile-add" data-add-day="${this._mobileDay}" ${!canAddOn(this._mobileDay) ? "disabled" : ""}>＋ ${t("add")}</button></div><div class="mobile-events">${mobileEntries || `<div class="mobile-empty">${t("noDeparture")}</div>`}</div></div>`;
+    const mobileCalendar=`<div class="mobile-calendar"><div class="mobile-days" role="group" aria-label="${t("selectDay")}">${mobileDays}</div><div class="mobile-selected"><strong>${mvEscape(this._dayLabel(this._mobileDay,dayKeys.indexOf(this._mobileDay)))}</strong><button class="mobile-add" data-add-day="${this._mobileDay}" ${!canAddOn(this._mobileDay) ? "disabled" : ""}>＋ ${selectedAddLabel}</button></div><div class="mobile-events">${mobileEntries || `<div class="mobile-empty">${t(this._mobileDay===todayDateKey ? "noDeparturesToday" : "noDeparture")}</div>`}</div></div>`;
     const agenda=`<details class="cal-agenda" ${agendaOpen ? "open" : ""}><summary>${t("agenda")}</summary>${agendaRows ? `<ul>${agendaRows}</ul>` : `<div class="cal-empty">${t("noDeparture")}</div>`}</details>`;
     const desktopCalendar=`<div class="desktop-calendar">${this._calendarExpanded ? agenda : ""}<div class="cal-scroll" role="region" tabindex="0" aria-label="${dayView ? mvEscape(this._dayLabel(this._mobileDay)) : t("seven")}"><div class="cal-grid ${dayView ? "single-day-grid" : ""}"><div class="cal-axis"><div class="cal-axis-head"></div><div class="cal-hours" style="height:${gridHeight}px">${rows}</div></div>${dayRows}</div></div>${dayView ? "" : `<div class="cal-scroll-hint">${t("scrollHint")}</div>`}${!this._calendarExpanded ? agenda : ""}</div>`;
     const nextEnergy = mvUsable(status) && Number.isFinite(a.next_estimated_energy_kwh) && a.next_estimated_energy_kwh >= 0 && a.next_estimate_basis === "latest_complete_session_average" ? `${new Intl.NumberFormat(metricLocale,{minimumFractionDigits:2,maximumFractionDigits:3}).format(a.next_estimated_energy_kwh)} kWh` : null;
@@ -951,8 +995,8 @@ class MotorvarmareCard extends HTMLElement {
     }).join("");
     const totalsBody=totals && totalLabels.some(([key])=>Array.isArray(totals[key])) ? `<div class="history-totals"><strong>${t("periodHistory")}</strong><div class="total-tabs" role="group" aria-label="${t("totalEnergy")}">${totalLabels.map(([key,label])=>`<button data-total-period="${key}" aria-pressed="${this._totalPeriod===key}">${label}</button>`).join("")}</div><ul class="total-list">${totalItems}</ul>${totalRows.length>this._totalLimit ? `<button id="total-more" class="history-more">${t("historyShowMore")}</button>` : totals.has_older?.[this._totalPeriod] ? `<div class="hint">${t("totalOlder")}</div>` : ""}</div>` : "";
     const formatRangeDate=key=>new Intl.DateTimeFormat(metricLocale,{timeZone:"UTC",day:"numeric",month:"short",year:"numeric"}).format(new Date(`${key}T12:00:00Z`));
-    const editingCalendar=!!(this._selectedDay || this._editChoice || this._deleteRecurrence);
-    const calendarNav=`<div class="calendar-nav"><button id="window-previous" aria-label="${t("calendarPrevious")}" title="${t("calendarPrevious")}" ${this._windowOffset<=-31 || editingCalendar ? "disabled" : ""}>‹</button><span class="calendar-range">${mvEscape(formatRangeDate(dayKeys[0]))} – ${mvEscape(formatRangeDate(dayKeys[6]))}</span><button id="window-next" aria-label="${t("calendarNext")}" title="${t("calendarNext")}" ${editingCalendar ? "disabled" : ""}>›</button>${this._windowOffset ? `<button id="window-today" ${editingCalendar ? "disabled" : ""}>${t("calendarToday")}</button><button id="window-refresh" title="${t("refreshCalendar")}" aria-label="${t("refreshCalendar")}" ${editingCalendar ? "disabled" : ""}>↻</button>` : ""}</div>${editingCalendar ? `<div class="hint">${t("finishEditing")}</div>` : ""}`;
+    const returnToday=id=>(this._windowOffset || this._mobileDay!==todayDateKey) ? `<button id="${id}" ${editingCalendar ? "disabled" : ""}>${t("calendarToday")}</button>` : "";
+    const calendarNav=`<div class="calendar-nav"><button id="window-previous" aria-label="${t("calendarPrevious")}" title="${t("calendarPrevious")}" ${this._windowOffset<=-31 || editingCalendar ? "disabled" : ""}>‹</button><span class="calendar-range">${mvEscape(formatRangeDate(dayKeys[0]))} – ${mvEscape(formatRangeDate(dayKeys[6]))}</span><button id="window-next" aria-label="${t("calendarNext")}" title="${t("calendarNext")}" ${editingCalendar ? "disabled" : ""}>›</button>${returnToday("window-today")}${this._windowOffset ? `<button id="window-refresh" title="${t("refreshCalendar")}" aria-label="${t("refreshCalendar")}" ${editingCalendar ? "disabled" : ""}>↻</button>` : ""}</div>${editingCalendar ? `<div class="hint">${t("finishEditing")}</div>` : ""}`;
     const scheduleBody=!mvUsable(status) ? `<div class="cal-warning" role="status">${t("noStatus")}</div>` : this._windowLoading ? `<div class="hint" role="status">${t("calendarLoading")}</div>` : this._windowError ? `<div class="cal-warning" role="alert">${this._windowUnsupported ? t("updateCalendar") : `${t("calendarFailed")} <button id="window-retry">${t("retry")}</button>`}</div>` : hasSchedule ? `${this._windowCalendarError ? `<div class="cal-warning" role="status">${t("calendarPartial")}</div>` : ""}${calendarGrid}` : `<div class="cal-warning">${t("updateCalendar")}</div>`;
     const deviationMessage=mvUsable(status) && a.power_deviation_active === true ? t(a.power_deviation_direction === "low" ? "deviationLow" : a.power_deviation_direction === "high" ? "deviationHigh" : "deviationUnknown") : null;
     const expandedAlerts=this._calendarExpanded && mvUsable(status) ? [...new Set([
@@ -962,17 +1006,17 @@ class MotorvarmareCard extends HTMLElement {
       deviationMessage,
     ].filter(Boolean))].map(message=>`<div class="notice" role="status">${mvEscape(message)}</div>`).join("") : "";
     const viewSwitch=this._calendarExpanded ? `<div class="calendar-view-switch" role="group" aria-label="${t("viewNavigation")}">${[["day","calendarDay"],["week","calendarWeek"]].map(([key,label])=>`<button data-calendar-mode="${key}" aria-pressed="${this._calendarMode===key}" ${editingCalendar ? "disabled" : ""}>${t(label)}</button>`).join("")}</div>` : "";
-    const dayNav=dayView ? `<div class="calendar-nav"><button id="day-previous" aria-label="${t("previousDay")}" ${(this._windowOffset<=-31 && this._mobileDay===dayKeys[0]) || editingCalendar ? "disabled" : ""}>‹</button><span class="calendar-range">${mvEscape(this._dayLabel(this._mobileDay))}</span><button id="day-next" aria-label="${t("nextDay")}" ${editingCalendar ? "disabled" : ""}>›</button>${(this._windowOffset || this._mobileDay!==todayDateKey) ? `<button id="day-today" ${editingCalendar ? "disabled" : ""}>${t("calendarToday")}</button>` : ""}</div>` : "";
+    const dayNav=dayView ? `<div class="calendar-nav"><button id="day-previous" aria-label="${t("previousDay")}" ${(this._windowOffset<=-31 && this._mobileDay===dayKeys[0]) || editingCalendar ? "disabled" : ""}>‹</button><span class="calendar-range">${mvEscape(this._dayLabel(this._mobileDay))}</span><button id="day-next" aria-label="${t("nextDay")}" ${editingCalendar ? "disabled" : ""}>›</button>${returnToday("day-today")}</div>` : "";
     const detailsOpen=!!this.shadowRoot.querySelector(".schedule-details")?.open;
     const scheduleDetails=`<details class="schedule-details" ${detailsOpen ? "open" : ""}><summary>${t("scheduleDetails")}</summary><p>${t(a.weather_enabled ? "shortForecast" : "shortEstimate")}${hasOverlap ? " "+t("overlap") : ""}</p></details>`;
     const undoNotice=this._removal && !this._removal.committing ? `<div class="undo-removal" aria-label="${t("removeDeparture")}"><span role="status">${t(this._removal.series ? "seriesRemovalPending" : "removalPending")}</span><button id="undo-removal">${t("undo")}</button><button id="commit-removal">${t("removeNow")}</button></div>` : "";
-    const calendarContents=`<div class="calendar-title"><span>${dayView ? t("calendarDay") : t("seven")}</span><span class="calendar-title-actions"><button id="new-departure" ${!canAddOn(this._mobileDay) ? "disabled" : ""}>＋ ${t("addDay")}</button>${!this._calendarExpanded ? `<button id="open-calendar" ${!mvUsable(status) ? "disabled" : ""}>${t("openCalendar")}</button>` : ""}</span></div>${scheduleDetails}${viewSwitch}${mvUsable(status) ? dayView ? dayNav : calendarNav : ""}${expandedAlerts}${this._calendarExpanded && this._actionError ? `<div class="notice" role="alert">${mvEscape(this._actionError)}</div>` : ""}${scheduleBody}${undoNotice}${mvUsable(status) && !calendarOk ? `<div class="hint">${t("updateAdd")}</div>` : ""}`;
+    const calendarContents=`<div class="calendar-title"><span>${dayView ? t("calendarDay") : t("seven")}</span><span class="calendar-title-actions"><button id="new-departure" ${!canAddOn(this._mobileDay) ? "disabled" : ""}>＋ ${selectedAddLabel}</button>${!this._calendarExpanded ? `<button id="open-calendar" ${!mvUsable(status) ? "disabled" : ""}>${t("openCalendar")}</button>` : ""}</span></div>${scheduleDetails}${viewSwitch}${mvUsable(status) ? dayView ? dayNav : calendarNav : ""}${expandedAlerts}${this._calendarExpanded && this._actionError ? `<div class="notice" role="alert">${mvEscape(this._actionError)}</div>` : ""}${scheduleBody}${undoNotice}${mvUsable(status) && !calendarOk ? `<div class="hint">${t("updateAdd")}</div>` : ""}`;
     const compactCalendar=this._calendarExpanded ? `<div class="calendar-placeholder" aria-hidden="true" style="height:${this._calendarPlaceholderHeight}px"></div>` : `<div class="calendar">${calendarContents}</div>`;
     // The open attribute is retained on updates so mvPatch does not turn a
     // native modal into a closed dialog on unrelated Home Assistant events.
     const expandedCalendar=this._calendarExpanded ? `<dialog id="calendar-expanded" class="calendar-modal" aria-labelledby="calendar-expanded-title" ${this.shadowRoot.querySelector("#calendar-expanded")?.open ? "open" : ""}><div class="calendar-modal-head"><h2 id="calendar-expanded-title">${t("expandedCalendarTitle")}</h2><button id="close-calendar" aria-label="${t("closeCalendar")}" title="${t("closeCalendar")}">✕</button></div><div class="calendar expanded-calendar">${calendarContents}${dayView ? "" : `<p class="calendar-modal-hint">${t("expandedCalendarScroll")}</p>` }</div></dialog>` : "";
     const departureSummary = `<section class="departure-summary" aria-label="${t("departure")}">
-          ${Number.isFinite(nextMs) ? `<div class="summary-label">${t("departure")}</div><div class="summary-date">${mvEscape(this._date(a.next_departure))}</div>${summaryTimeline}` : `<div class="summary-label">${t("departure")}</div><div class="summary-empty">${mvUsable(status) ? t("summaryEmpty") : t("noStatus")}</div>${mvUsable(status) ? `<button id="empty-add-departure" ${!calendarOk || this._pending ? "disabled" : ""}>＋ ${t("summaryAdd")}</button>` : ""}`}
+          ${Number.isFinite(nextMs) ? `<div class="summary-label">${t("departure")}</div><div class="summary-date">${mvEscape(this._date(a.next_departure))}</div>${summaryTimeline}` : `<div class="summary-label">${t("departure")}</div><div class="summary-empty">${mvUsable(status) ? t("summaryEmpty") : t("noStatus")}</div>${mvUsable(status) ? `<button id="empty-add-departure" ${!canAddOn(this._mobileDay) ? "disabled" : ""}>＋ ${selectedAddLabel}</button>` : ""}`}
           <div class="summary-metrics"><span><span>${t("summaryTemperature")}</span> <strong>${mvEscape(temperature)}</strong></span><span><span>${t("summaryDuration")}</span> <strong>${currentRuntime !== null ? mvDuration(h,currentRuntime) : mvUsable(status) && a.next_departure && Number.isFinite(a.duration_minutes) ? mvDuration(h,a.duration_minutes) : "–"}</strong></span>${mvUsable(status) && a.post_departure_minutes > 0 ? `<span><span>${t("postDeparture")}</span> <strong>${mvDuration(h,a.post_departure_minutes)}</strong></span>` : ""}</div>
           ${mvUsable(status) && a.source ? `<div class="summary-source">${t("from")} ${mvEscape(String(mvStateText(h,a.source)).toLowerCase())}</div>` : ""}
         </section>`;
@@ -981,9 +1025,9 @@ class MotorvarmareCard extends HTMLElement {
         :host{display:block;color:var(--primary-text-color);font-family:var(--paper-font-body1_-_font-family,Roboto,system-ui,sans-serif)} *{box-sizing:border-box} ha-card{overflow:hidden} .wrap{padding:20px} .head{display:flex;gap:12px;align-items:center;margin-bottom:20px} .icon{width:42px;height:42px;display:grid;place-items:center;border-radius:14px;background:rgba(var(--rgb-primary-color,3,169,244),.12);color:var(--primary-color)} ha-icon{--mdc-icon-size:22px}.headtext{flex:1;min-width:0}.title{font-size:18px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.status{font-size:13px;color:var(--secondary-text-color);margin-top:2px}.badge{font-size:12px;font-weight:600;padding:6px 10px;border-radius:20px;background:var(--secondary-background-color);color:var(--secondary-text-color);white-space:nowrap}.badge.on{background:rgba(var(--rgb-success-color,67,160,71),.14);color:var(--success-color,#278748)} .stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 16px;padding:16px 0;border-top:1px solid var(--divider-color);border-bottom:1px solid var(--divider-color)} .label{font-size:12px;color:var(--secondary-text-color);margin-bottom:3px}.value{font-size:15px;font-weight:500;overflow-wrap:anywhere}.section{margin-top:18px}.sectionhead{font-weight:600;margin-bottom:10px}.manual{display:flex;gap:8px;align-items:end;flex-wrap:wrap}.field{flex:1;min-width:175px}.field label{display:block;font-size:12px;color:var(--secondary-text-color);margin-bottom:5px} input[type=datetime-local],input[type=time]{color:var(--primary-text-color);background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:8px;padding:8px;font:inherit;min-height:40px;max-width:100%} input[type=datetime-local]{width:100%} button{font:500 14px var(--paper-font-body1_-_font-family,Roboto,system-ui,sans-serif);color:var(--primary-color);background:transparent;border:0;border-radius:8px;min-height:40px;padding:8px 10px;cursor:pointer} button.primary{background:var(--primary-color);color:var(--text-primary-color,#fff)} button:disabled,input:disabled{opacity:.48;cursor:not-allowed} button:focus-visible,input:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}.expand{display:flex;align-items:center;justify-content:space-between;width:100%;padding:9px 0;text-align:left;color:var(--primary-text-color);font-weight:600}.expand .small{font-size:12px;color:var(--primary-color)} .day{display:grid;grid-template-columns:minmax(75px,1fr) auto auto;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--divider-color)} .day input[type=time]{width:100px}.day-toggle{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--secondary-text-color);min-width:50px}.day-toggle input{width:18px;height:18px;accent-color:var(--primary-color)} .notice{font-size:13px;color:var(--error-color,#c62828);margin-top:12px;overflow-wrap:anywhere}.hint{font-size:12px;color:var(--secondary-text-color);margin-top:10px}.actions{display:flex;gap:4px;align-items:center} @media(max-width:350px){.wrap{padding:15px}.day{grid-template-columns:minmax(65px,1fr) auto auto;gap:5px}.day input[type=time]{width:90px}}
         .quick-actions{display:flex;align-items:center;gap:12px;margin-top:15px;flex-wrap:wrap}.quick-actions .hint{margin:0;flex:1;min-width:150px}.calendar{margin-top:20px}.calendar-title{font-weight:600;margin-bottom:4px}.calendar-subtitle{font-size:12px;color:var(--secondary-text-color);margin-bottom:10px;line-height:1.45}.cal-day{border-top:1px solid var(--divider-color);padding:9px 0}.cal-day-head{display:flex;align-items:center;justify-content:space-between;gap:8px;font-weight:600;text-transform:none}.cal-day-head button{min-height:36px;padding:5px 6px}.cal-empty{font-size:12px;color:var(--secondary-text-color);padding:3px 0}.cal-entry{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 0}.cal-timing{font-size:13px;font-weight:500}.cal-source{font-size:12px;color:var(--secondary-text-color)}.remove{font-size:12px;min-height:36px;color:var(--secondary-text-color);white-space:nowrap}.cal-editor{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:7px}.cal-editor label{font-size:12px;color:var(--secondary-text-color)}.cal-editor input{width:105px}.cal-editor button{padding:6px 9px} .cal-warning{font-size:12px;color:var(--error-color,#c62828);margin-top:8px}
         .main-tabs{display:flex;gap:4px;margin-top:18px;border-bottom:1px solid var(--divider-color)}.main-tabs button{flex:1;min-width:0;padding:8px 3px;color:var(--secondary-text-color);border-radius:6px 6px 0 0}.main-tabs button[aria-selected=true]{color:var(--primary-color);border-bottom:2px solid var(--primary-color)}.main-panel[hidden]{display:none}.schedule-actions button{font-size:12px}.pause-editor input{min-width:0;max-width:100%}
-        .cal-scroll{overflow:auto;max-height:640px;border:1px solid var(--divider-color);border-radius:12px;background:var(--card-background-color);overscroll-behavior:contain}.cal-grid{display:grid;grid-template-columns:52px repeat(7,minmax(112px,1fr));min-width:836px}.cal-axis-head,.cal-day-head{height:78px;position:sticky;top:0;z-index:3;background:var(--card-background-color);border-bottom:1px solid var(--divider-color)}.cal-axis-head{z-index:4}.cal-day{border:0;padding:0;min-width:0}.cal-day-head{display:flex;position:sticky;flex-direction:column;justify-content:center;align-items:center;gap:2px;padding:4px 26px 4px 4px}.cal-weekday{font-size:11px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:var(--secondary-text-color)}.cal-date{font-size:20px;font-weight:500;width:32px;height:32px;display:grid;place-items:center;border-radius:50%}.cal-date.is-today{background:var(--primary-color);color:var(--text-primary-color,#fff)}.cal-day-head .add-day{position:absolute;right:2px;top:22px;min-width:30px;min-height:32px;padding:3px;font-size:19px}.cal-column{position:relative;border-left:1px solid var(--divider-color);background-image:repeating-linear-gradient(to bottom,var(--divider-color) 0,var(--divider-color) 1px,transparent 1px,transparent 64px);cursor:crosshair}.cal-hours{position:relative}.cal-hour{position:absolute;right:6px;transform:translateY(-50%);font-size:11px;color:var(--secondary-text-color);white-space:nowrap}.cal-hour:first-child{transform:none}.cal-hour:last-child{transform:translateY(-100%)}.cal-event{position:absolute;z-index:1;display:flex;align-items:flex-start;gap:2px;padding:3px 2px 2px 4px;border-radius:5px;background:#e8b84f;border-left:3px solid #9b7130;color:#211906;overflow:hidden;cursor:default}.cal-event-text{min-width:0;flex:1;overflow:hidden}.cal-event .cal-timing{font-size:10px;line-height:12px;font-weight:600;color:inherit;overflow-wrap:anywhere}.cal-event .cal-source{font-size:10px;line-height:12px;color:inherit;opacity:.76;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cal-event.marker-event{background:var(--secondary-background-color);border-left-color:var(--secondary-text-color);color:var(--primary-text-color)}.cal-event .remove{flex:none;min-width:22px;min-height:24px;padding:0;color:inherit;font-size:17px;line-height:20px}.cal-editor{margin:0 0 10px;padding:10px;border-radius:8px;background:var(--secondary-background-color)}.cal-editor strong{font-size:13px;margin-right:4px}.cal-scroll-hint{font-size:11px;color:var(--secondary-text-color);margin-top:6px}.cal-agenda{font-size:12px;color:var(--secondary-text-color);margin-top:8px}.cal-agenda summary{cursor:pointer;color:var(--primary-color);padding:6px 0}.cal-agenda ul{list-style:none;margin:0;padding:0}.cal-agenda li{display:flex;align-items:center;justify-content:space-between;gap:8px;border-top:1px solid var(--divider-color);padding:5px 0;line-height:1.5}.cal-agenda strong{color:var(--primary-text-color)}
+        .cal-scroll{overflow:auto;max-height:640px;border:1px solid var(--divider-color);border-radius:12px;background:var(--card-background-color);overscroll-behavior:contain}.cal-grid{display:grid;grid-template-columns:52px repeat(7,minmax(112px,1fr));min-width:836px}.cal-axis-head,.cal-day-head{height:78px;position:sticky;top:0;z-index:3;background:var(--card-background-color);border-bottom:1px solid var(--divider-color)}.cal-axis-head{z-index:4}.cal-day{border:0;padding:0;min-width:0}.cal-day-head{display:flex;position:sticky;flex-direction:column;justify-content:center;align-items:center;gap:2px;padding:4px 26px 4px 4px}.cal-weekday{font-size:11px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:var(--secondary-text-color)}.cal-date{font-size:20px;font-weight:500;width:32px;height:32px;display:grid;place-items:center;border-radius:50%}.cal-day-head .add-day{position:absolute;right:2px;top:22px;min-width:30px;min-height:32px;padding:3px;font-size:19px}.cal-column{position:relative;border-left:1px solid var(--divider-color);background-image:repeating-linear-gradient(to bottom,var(--divider-color) 0,var(--divider-color) 1px,transparent 1px,transparent 64px);cursor:crosshair}.cal-hours{position:relative}.cal-hour{position:absolute;right:6px;transform:translateY(-50%);font-size:11px;color:var(--secondary-text-color);white-space:nowrap}.cal-hour:first-child{transform:none}.cal-hour:last-child{transform:translateY(-100%)}.cal-event{position:absolute;z-index:1;display:flex;align-items:flex-start;gap:2px;padding:3px 2px 2px 4px;border-radius:5px;background:#e8b84f;border-left:3px solid #9b7130;color:#211906;overflow:hidden;cursor:default}.cal-event-text{min-width:0;flex:1;overflow:hidden}.cal-event .cal-timing{font-size:10px;line-height:12px;font-weight:600;color:inherit;overflow-wrap:anywhere}.cal-event .cal-source{font-size:10px;line-height:12px;color:inherit;opacity:.76;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cal-event.marker-event{background:var(--secondary-background-color);border-left-color:var(--secondary-text-color);color:var(--primary-text-color)}.cal-event .remove{flex:none;min-width:22px;min-height:24px;padding:0;color:inherit;font-size:17px;line-height:20px}.cal-editor{margin:0 0 10px;padding:10px;border-radius:8px;background:var(--secondary-background-color)}.cal-editor strong{font-size:13px;margin-right:4px}.cal-scroll-hint{font-size:11px;color:var(--secondary-text-color);margin-top:6px}.cal-agenda{font-size:12px;color:var(--secondary-text-color);margin-top:8px}.cal-agenda summary{cursor:pointer;color:var(--primary-color);padding:6px 0}.cal-agenda ul{list-style:none;margin:0;padding:0}.cal-agenda li{display:flex;align-items:center;justify-content:space-between;gap:8px;border-top:1px solid var(--divider-color);padding:5px 0;line-height:1.5}.cal-agenda strong{color:var(--primary-text-color)}
         .history-list{list-style:none;margin:0;padding:0}.history-entry{padding:11px 0;border-top:1px solid var(--divider-color);font-size:13px;line-height:1.45}.history-range{font-weight:600;color:var(--primary-text-color);overflow-wrap:anywhere}.history-metrics{display:flex;gap:6px 18px;flex-wrap:wrap;color:var(--secondary-text-color);margin-top:3px}.history-incomplete,.history-empty{font-size:12px;color:var(--secondary-text-color);margin-top:4px}.history-more{padding-left:0}
-        .calendar-nav{display:flex;align-items:center;gap:4px;margin:4px 0 10px}.calendar-nav button{min-width:40px;padding:4px 8px}.calendar-nav button:not(#window-today){font-size:22px}.calendar-range{flex:1;text-align:center;font-weight:500;font-size:12px}.cal-editor select,.cal-editor input[type=date],.cal-editor input[type=number]{color:var(--primary-text-color);background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:8px;padding:8px;min-height:40px;max-width:100%;font:inherit}.cal-editor input[type=number]{width:72px}.cal-editor input[type=date]{width:168px}.cal-editor input[type=text]{width:150px;max-width:100%;color:var(--primary-text-color);background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:8px;padding:8px;min-height:40px;box-sizing:border-box;font:inherit}.cal-editor.calendar-form{display:grid;grid-template-columns:minmax(95px,auto) minmax(0,1fr);gap:8px 10px}.calendar-form strong,.calendar-form .repeat-days,.calendar-form .series-warning,.calendar-form .series-confirm{grid-column:1 / -1}.cal-editor.calendar-form input:not([type=checkbox]),.cal-editor.calendar-form select{width:100%;max-width:100%;box-sizing:border-box}.calendar-form button{justify-self:start}.cal-editor .series-warning{width:100%;font-size:12px;line-height:1.4}.cal-editor .series-confirm{display:flex;align-items:center;gap:6px;width:100%}.cal-editor .series-confirm input{width:18px;height:18px;accent-color:var(--primary-color)}.repeat-days{display:flex;gap:2px;flex-wrap:wrap;width:100%;border:0;padding:0;margin:2px 0}.repeat-days legend{font-size:12px;color:var(--secondary-text-color)}.repeat-day{display:flex;align-items:center;gap:2px;padding:4px}.repeat-day input{width:18px;height:18px;accent-color:var(--primary-color)}.history-totals{padding:10px 0 14px;font-size:13px}.total-tabs{display:flex;gap:4px;margin-top:6px}.total-tabs button{min-height:36px;padding:5px 12px;color:var(--secondary-text-color)}.total-tabs button[aria-pressed=true]{color:var(--primary-color);background:var(--secondary-background-color)}.total-list{list-style:none;margin:4px 0;padding:0}.total-list li{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--divider-color)}.total-list small{color:var(--secondary-text-color)}
+        .calendar-nav{display:flex;align-items:center;gap:4px;margin:4px 0 10px}.calendar-nav button{min-width:40px;padding:4px 8px}.calendar-nav button:not(#window-today):not(#day-today){font-size:22px}.calendar-range{flex:1;text-align:center;font-weight:500;font-size:12px}.cal-editor select,.cal-editor input[type=date],.cal-editor input[type=number]{color:var(--primary-text-color);background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:8px;padding:8px;min-height:40px;max-width:100%;font:inherit}.cal-editor input[type=number]{width:72px}.cal-editor input[type=date]{width:168px}.cal-editor input[type=text]{width:150px;max-width:100%;color:var(--primary-text-color);background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:8px;padding:8px;min-height:40px;box-sizing:border-box;font:inherit}.cal-editor.calendar-form{display:grid;grid-template-columns:minmax(95px,auto) minmax(0,1fr);gap:8px 10px}.calendar-form strong,.calendar-form .repeat-days,.calendar-form .series-warning,.calendar-form .series-confirm{grid-column:1 / -1}.cal-editor.calendar-form input:not([type=checkbox]),.cal-editor.calendar-form select{width:100%;max-width:100%;box-sizing:border-box}.calendar-form button{justify-self:start}.cal-editor .series-warning{width:100%;font-size:12px;line-height:1.4}.cal-editor .series-confirm{display:flex;align-items:center;gap:6px;width:100%}.cal-editor .series-confirm input{width:18px;height:18px;accent-color:var(--primary-color)}.repeat-days{display:flex;gap:2px;flex-wrap:wrap;width:100%;border:0;padding:0;margin:2px 0}.repeat-days legend{font-size:12px;color:var(--secondary-text-color)}.repeat-day{display:flex;align-items:center;gap:2px;padding:4px}.repeat-day input{width:18px;height:18px;accent-color:var(--primary-color)}.history-totals{padding:10px 0 14px;font-size:13px}.total-tabs{display:flex;gap:4px;margin-top:6px}.total-tabs button{min-height:36px;padding:5px 12px;color:var(--secondary-text-color)}.total-tabs button[aria-pressed=true]{color:var(--primary-color);background:var(--secondary-background-color)}.total-list{list-style:none;margin:4px 0;padding:0}.total-list li{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--divider-color)}.total-list small{color:var(--secondary-text-color)}
         .calendar{container-type:inline-size}.mobile-calendar,.mobile-hint{display:none}
         @container (max-width: 839px){
           .desktop-calendar,.desktop-hint{display:none}.mobile-calendar,.mobile-hint{display:block}
@@ -991,10 +1035,9 @@ class MotorvarmareCard extends HTMLElement {
           .mobile-days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:1px;padding:8px 5px;border-bottom:1px solid var(--divider-color)}
           .mobile-day{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:0;min-height:62px;padding:3px 0;color:var(--secondary-text-color);font-size:10px;text-transform:uppercase}
           .mobile-day strong{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;font-size:15px;color:var(--primary-text-color)}
-          .mobile-day[aria-pressed="true"] strong{background:var(--primary-color);color:var(--text-primary-color,#fff)}
           .mobile-day i{width:4px;height:4px;border-radius:50%;background:transparent}.mobile-day i.has-events{background:var(--primary-color)}
-          .mobile-selected{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 12px;color:var(--primary-text-color);font-size:13px}
-          .mobile-add{white-space:nowrap}.mobile-events{display:grid;gap:7px;padding:0 12px 12px}.mobile-empty{padding:12px 0;color:var(--secondary-text-color);font-size:13px}
+          .mobile-selected{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:0 8px;padding:6px 12px;color:var(--primary-text-color);font-size:13px}
+          .mobile-events{display:grid;gap:7px;padding:0 12px 12px}.mobile-empty{padding:12px 0;color:var(--secondary-text-color);font-size:13px}
           .mobile-event{display:flex;justify-content:space-between;align-items:center;gap:8px;min-width:0;border-left:4px solid #9b7130;border-radius:7px;padding:10px 8px;background:#e8b84f;color:#211906;font-size:13px;line-height:1.35}.mobile-event>div{min-width:0;overflow-wrap:anywhere}
           .mobile-event strong{font-weight:600}.mobile-event.marker-event{background:var(--secondary-background-color);border-left-color:var(--secondary-text-color);color:var(--primary-text-color)}
           .mobile-source{font-size:11px;margin-top:3px;opacity:.8}.mobile-remove{color:inherit;min-height:40px;padding:6px;white-space:nowrap;font-size:12px}
@@ -1052,6 +1095,12 @@ class MotorvarmareCard extends HTMLElement {
         .calendar-nav button{min-height:44px;border-radius:10px;background:var(--secondary-background-color)}
         .calendar-range{font-size:13px;font-weight:650}
         .cal-scroll,.mobile-calendar{border-radius:14px}
+        .cal-day-head .calendar-day-choice{display:grid;justify-items:center;gap:4px;min-width:44px;padding:4px;color:var(--primary-text-color)}
+        .calendar-day-choice[aria-pressed="true"] strong{background:var(--primary-color);color:var(--text-primary-color,#fff);font-weight:700}
+        .calendar-day-choice[aria-current="date"] strong{outline:2px solid var(--primary-color);outline-offset:1px}
+        .calendar-day-choice[aria-current="date"]>span{color:var(--primary-color);font-weight:700;text-transform:none}
+        .calendar-form-actions{grid-column:1/-1;display:flex;align-items:center;flex-wrap:wrap;gap:4px}
+        .calendar-form-actions button,.calendar-title-actions button,.mobile-selected .mobile-add{max-width:100%;white-space:normal;overflow-wrap:anywhere}
         .cal-event,.mobile-event{background:rgba(var(--rgb-primary-color,3,169,244),.18);border-left-color:var(--primary-color);color:var(--primary-text-color)}
         .cal-event.marker-event,.mobile-event.marker-event{background:var(--secondary-background-color);border-left-color:var(--secondary-text-color)}
         .cal-editor{border-radius:12px;padding:14px}
@@ -1078,7 +1127,7 @@ class MotorvarmareCard extends HTMLElement {
           .quick-actions .hint{min-width:120px}.calendar-title{font-size:14px}
           input:not([type=checkbox]),select{font-size:16px}
         }
-        .calendar-title{flex-wrap:wrap}.calendar-title-actions{display:flex;align-items:center;gap:2px;flex-wrap:wrap}.calendar-placeholder{margin-top:20px}
+        .calendar-title{flex-wrap:wrap}.calendar-title-actions{display:flex;align-items:center;gap:2px;flex-wrap:wrap;max-width:100%}.calendar-placeholder{margin-top:20px}
         .calendar-modal{width:min(1200px,calc(100vw - 24px));max-width:none;max-height:calc(100vh - 24px);max-height:calc(100dvh - 24px);padding:18px;border:1px solid var(--divider-color);border-radius:18px;background:var(--card-background-color);color:var(--primary-text-color);box-shadow:0 18px 55px rgba(0,0,0,.35);overflow:auto;overscroll-behavior:contain}
         .calendar-modal::backdrop{background:rgba(0,0,0,.65)}
         .calendar-modal .single-day-grid{min-width:0;grid-template-columns:46px minmax(0,1fr)}
@@ -1246,7 +1295,7 @@ class MotorvarmareCard extends HTMLElement {
     this.shadowRoot.querySelector("#active-graph-toggle")?.addEventListener("click", () => {this._showPowerGraph=!this._showPowerGraph;this._render();this.shadowRoot.querySelector("#active-graph-toggle")?.focus({preventScroll:true});}, {signal:renderSignal});
     this.shadowRoot.querySelectorAll("[data-main-tab]").forEach(el=>el.addEventListener("click",()=>{this._activeView=el.dataset.mainTab;this._render();}, {signal:renderSignal}));
     this.shadowRoot.querySelector("#new-departure")?.addEventListener("click",()=>this._selectCalendarDay(this._mobileDay || this._dayKeys()[0]), {signal:renderSignal});
-    this.shadowRoot.querySelector("#empty-add-departure")?.addEventListener("click",()=>{this._activeView="calendar";this._selectCalendarDay(this._dayKeys()[0]);}, {signal:renderSignal});
+    this.shadowRoot.querySelector("#empty-add-departure")?.addEventListener("click",()=>{this._activeView="calendar";this._selectCalendarDay(this._mobileDay || this._dayKeys()[0]);}, {signal:renderSignal});
     this.shadowRoot.querySelector("#skip-next")?.addEventListener("click", () => this._call("button", "press", {entity_id:e.skip_next}), {signal:renderSignal});
     this.shadowRoot.querySelector("#more-actions")?.addEventListener("click", () => {this._showMoreActions=!this._showMoreActions;this._render();}, {signal:renderSignal});
     this.shadowRoot.querySelector("#pause-automation")?.addEventListener("click", async () => {if (await this._call("switch", a.automation_paused ? "turn_off" : "turn_on", {entity_id:e.automation_paused})) {this._pauseDraft=null;this._showPauseDate=false;this._render();}}, {signal:renderSignal});
@@ -1264,7 +1313,7 @@ class MotorvarmareCard extends HTMLElement {
     this.shadowRoot.querySelectorAll("[data-calendar-mode]").forEach(el=>el.addEventListener("click",()=>{this._calendarMode=el.dataset.calendarMode;this._render();}, {signal:renderSignal}));
     this.shadowRoot.querySelector("#day-previous")?.addEventListener("click",()=>this._changeCalendarDay(-1), {signal:renderSignal});
     this.shadowRoot.querySelector("#day-next")?.addEventListener("click",()=>this._changeCalendarDay(1), {signal:renderSignal});
-    this.shadowRoot.querySelector("#day-today")?.addEventListener("click",()=>this._changeCalendarWindow(null,todayDateKey), {signal:renderSignal});
+    this.shadowRoot.querySelector("#day-today")?.addEventListener("click",()=>this._changeCalendarWindow(null), {signal:renderSignal});
     this.shadowRoot.querySelector("#undo-removal")?.addEventListener("click",()=>{this._cancelRemoval();this._render();}, {signal:renderSignal});
     this.shadowRoot.querySelector("#commit-removal")?.addEventListener("click",()=>this._commitRemoval(), {signal:renderSignal});
     if (this._removal) this.shadowRoot.querySelectorAll("[data-remove-uid]").forEach(el=>el.disabled=true);
@@ -1273,9 +1322,10 @@ class MotorvarmareCard extends HTMLElement {
     this.shadowRoot.querySelector("#window-today")?.addEventListener("click", () => this._changeCalendarWindow(null), {signal:renderSignal});
     this.shadowRoot.querySelector("#window-refresh")?.addEventListener("click", () => this._loadCalendarWindow(), {signal:renderSignal});
     this.shadowRoot.querySelector("#window-retry")?.addEventListener("click", () => this._loadCalendarWindow(), {signal:renderSignal});
-    this.shadowRoot.querySelectorAll("[data-mobile-day]").forEach(el => el.addEventListener("click", () => {
-      const key=el.dataset.mobileDay; this._mobileDay=key;this._mobileDayChosen=true;this._render();
-      this.shadowRoot.querySelector(`[data-mobile-day="${key}"]`)?.focus({preventScroll:true});
+    this.shadowRoot.querySelectorAll("[data-mobile-day],[data-grid-select-day]").forEach(el => el.addEventListener("click", () => {
+      this._mobileDay=el.dataset.mobileDay || el.dataset.gridSelectDay;
+      this._mobileDayChosen=true;
+      this._render();
     }, {signal:renderSignal}));
     this.shadowRoot.querySelector("#calendar-history-day")?.addEventListener("change", event => {
       this._mobileDay=event.target.value; this._mobileDayChosen=true; this._render();
@@ -1293,10 +1343,14 @@ class MotorvarmareCard extends HTMLElement {
       this._editDate=event.target.value;
       const title=this.shadowRoot.querySelector("#calendar-editor-title");
       if (title) title.textContent=t(this._editContext ? "editDeparture" : "newDeparture")+(this._editDate ? " · "+this._dayLabel(this._editDate) : "");
+      this.shadowRoot.querySelector("#add-calendar").textContent=this._saveDepartureLabel();
     }, {signal:renderSignal});
     this.shadowRoot.querySelector("#calendar-summary")?.addEventListener("input", event => {this._editSummary=event.target.value;}, {signal:renderSignal});
     this.shadowRoot.querySelector("#confirm-series-change")?.addEventListener("change", event => {this._editAcknowledged=event.target.checked;}, {signal:renderSignal});
-    this.shadowRoot.querySelector("#calendar-time")?.addEventListener("input", event => { this._calendarTime=event.target.value; }, {signal:renderSignal});
+    this.shadowRoot.querySelector("#calendar-time")?.addEventListener("input", event => {
+      this._calendarTime=event.target.value;
+      this.shadowRoot.querySelector("#add-calendar").textContent=this._saveDepartureLabel();
+    }, {signal:renderSignal});
     this.shadowRoot.querySelector("#repeat-frequency")?.addEventListener("change", event => {this._repeatFreq=event.target.value;this._render();}, {signal:renderSignal});
     this.shadowRoot.querySelector("#repeat-interval")?.addEventListener("input", event => {this._repeatInterval=event.target.value;}, {signal:renderSignal});
     this.shadowRoot.querySelector("#repeat-until")?.addEventListener("input", event => {this._repeatUntil=event.target.value;}, {signal:renderSignal});
@@ -1373,6 +1427,7 @@ class MotorvarmareCard extends HTMLElement {
     this.shadowRoot.querySelectorAll("[data-day-time]").forEach((el) => el.addEventListener("change", () => {if (el.value) this._call("time", "set_value", {entity_id:e.weekly[Number(el.dataset.dayTime)].time, time:`${el.value}:00`});}, {signal:renderSignal}));
     this.shadowRoot.querySelectorAll("[data-day-switch]").forEach((el) => el.addEventListener("change", () => this._call("switch", el.checked ? "turn_on" : "turn_off", {entity_id:e.weekly[Number(el.dataset.daySwitch)].enabled}), {signal:renderSignal}));
     if (focusedMobileDay) this.shadowRoot.querySelector(`[data-mobile-day="${focusedMobileDay}"]`)?.focus({preventScroll:true});
+    if (focusedGridDay) this.shadowRoot.querySelector(`[data-grid-select-day="${focusedGridDay}"]`)?.focus({preventScroll:true});
     if (focusedHistory) this.shadowRoot.querySelector(`#${focusedHistory}`)?.focus({preventScroll:true});
     if (focusedTotal) this.shadowRoot.querySelector(`[data-total-period="${focusedTotal}"]`)?.focus({preventScroll:true});
   }
