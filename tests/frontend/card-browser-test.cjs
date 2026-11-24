@@ -56,8 +56,8 @@ async function main() {
       document.body.appendChild(card);
     });
     const card=page.locator('motorvarmare-card');
-    assert.match(await card.locator('.wrap').innerText(),/Väntar på start/);
-    assert.match(await card.locator('.wrap').innerText(),/Värmer i 36 min/);
+    assert.match(await card.locator('.wrap').innerText(),/Startar om 20 tim 54 min/);
+    assert.match(await card.locator('.wrap').innerText(),/Automatiskt stopp efter 36 min/);
     assert.equal(await card.locator('.cal-day').count(),7);
     assert.equal(await card.locator('.cal-event').count(),4);
     assert.ok(await card.locator('[data-remove-uid]').count() >= 2,'Local departures remain individually removable');
@@ -156,7 +156,7 @@ async function main() {
     assert.doesNotMatch(await card.locator('.wrap').innerText(),/Overlapping times/);
     await card.locator('.schedule-details summary').click();
     assert.match(await card.locator('.wrap').innerText(),/Overlapping times/);
-    assert.match(await card.locator('.wrap').innerText(),/formula gives no heating time/);
+    assert.match(await card.locator('.wrap').innerText(),/No heating needed at this temperature/);
     assert.equal(await card.locator('#start-now').isDisabled(),true);
     await page.setViewportSize({width:320,height:1000});
     const fits=await card.evaluate(el=>el.scrollWidth<=el.clientWidth);

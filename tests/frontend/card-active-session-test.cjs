@@ -32,7 +32,7 @@ async function main() {
     assert.match(await card.locator('.active-remaining').innerText(),/35 min kvar/);
     assert.equal(await card.locator('.active-progress').getAttribute('aria-valuenow'),'42');
     assert.match(await card.locator('.active-metrics').innerText(),/780 W[\s\S]*0,35 kWh[\s\S]*1,20 SEK/);
-    assert.match(await card.locator('.active-measurement-since').innerText(),/Mätning sedan 09:00/);
+    assert.equal(await card.locator('.active-measurement-since').count(),0,'A measurement beginning in the same displayed minute needs no second start label');
     const graphPath=await card.locator('.active-chart path').getAttribute('d');
     assert.equal(graphPath.match(/M/g).length,2,'Missing data splits the line');
     assert.match(graphPath,/M0\.00 25\.00 L26\.67 25\.00 L26\.67 16\.50/,'Use the full heating interval and hold the previous power until the next observation');
@@ -98,9 +98,9 @@ async function main() {
     assert.match(await card.locator('#extend-30').innerText(),/Förläng till max/);
     await page.evaluate(()=>{const a=window.hass.states['sensor.car'].attributes;a.can_extend=false;a.active_until=a.active_max_until;document.querySelector('motorvarmare-card').hass={...window.hass}});
     assert.equal(await card.locator('#extend-30').isDisabled(),true);
-    assert.match(await card.locator('.active-limit').innerText(),/Maximal värmetid/);
+    assert.match(await card.locator('.active-limit').innerText(),/Fyratimmarsgränsen är nådd/);
     await page.evaluate(()=>{const a=window.hass.states['sensor.car'].attributes;a.power_sensor_configured=false;a.energy_sensor_configured=false;document.querySelector('motorvarmare-card').hass={...window.hass}});
-    assert.match(await card.locator('.active-no-sensor').innerText(),/Effektsensor saknas/);
+    assert.match(await card.locator('.active-no-sensor').innerText(),/Välj en effektsensor i integrationens inställningar/);
     assert.equal(await card.locator('.active-progress').count(),1,'Timeline works without power sensor');
     await page.evaluate(()=>{const a=window.hass.states['sensor.car'].attributes;a.active_started_at='2026-10-25T00:50:00Z';a.active_until='2026-10-25T01:20:00Z';document.querySelector('motorvarmare-card').hass={...window.hass}});
     assert.match(await card.locator('.active-times').innerText(),/02:50.*GMT\+2[\s\S]*02:20.*GMT\+1/,'Repeated autumn clock hours include their offsets');

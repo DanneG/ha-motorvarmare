@@ -7,115 +7,72 @@
 [![HACS Default](https://img.shields.io/badge/HACS-Default-orange?style=for-the-badge)](https://github.com/hacs/default)
 [![Senaste release](https://img.shields.io/github/v/release/DanneG/ha-motorvarmare?style=for-the-badge&label=release)](https://github.com/DanneG/ha-motorvarmare/releases/latest)
 [![Validering på main](https://img.shields.io/github/actions/workflow/status/DanneG/ha-motorvarmare/validate.yml?branch=main&style=for-the-badge&label=validering)](https://github.com/DanneG/ha-motorvarmare/actions/workflows/validate.yml)
-[![Aktivitet senaste året](https://img.shields.io/github/commit-activity/y/DanneG/ha-motorvarmare?style=for-the-badge&label=aktivitet)](https://github.com/DanneG/ha-motorvarmare/commits/main/)
 [![Licens](https://img.shields.io/github/license/DanneG/ha-motorvarmare?style=for-the-badge&label=licens)](https://github.com/DanneG/ha-motorvarmare/blob/main/LICENSE)
 <!-- ha-marketplace:exclude-end -->
 
-Motorvärmare planerar en elektrisk motorvärmare utifrån en utetemperatursensor och en avresetid. Varje bil har en egen smartplugg eller brytare som fungerar i Home Assistant samt egna avresor. Inställningsformulär, entiteter och tillhörande kort stöder svenska och engelska.
+Ange när du ska åka. Motorvärmare räknar ut när varje bils värmare ska starta utifrån utetemperaturen. Vid −5 °C och avresa 07.30 startar värmningen 06.00.
 
-![Exempelbil under värmning med effektkurva och dagens datum markerat i avresekalendern. Fiktiva uppgifter.](demo-card-sv.png)
-
-## Installera
+## Installation
 
 <!-- ha-marketplace:exclude-start -->
-- **Home Assistant 2026.11 eller senare:** Öppna **Marketplace**, sök efter **Motorvärmare** och installera integrationen.
-- **Äldre versioner:** Öppna **HACS**, sök efter **Motorvärmare** och installera integrationen. [Öppna i HACS](https://my.home-assistant.io/redirect/hacs_repository/?owner=DanneG&repository=ha-motorvarmare&category=integration).
+- **Home Assistant 2026.11 eller senare** — Installera **Motorvärmare** under **Inställningar → Marknadsplatsen**.
+- **Äldre versioner** — Sök efter **Motorvärmare** i HACS. [Öppna i HACS](https://my.home-assistant.io/redirect/hacs_repository/?owner=DanneG&repository=ha-motorvarmare&category=integration)
+- Saknas integrationen i katalogen? Lägg till `https://github.com/DanneG/ha-motorvarmare` som anpassat förråd i kategorin **Integration**.
 
-[![Öppna i Home Assistant Marketplace](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=DanneG&repository=ha-motorvarmare&category=integration)
-
-Om du inte hittar integrationen i katalogen kan du lägga till `https://github.com/DanneG/ha-motorvarmare` som ett anpassat förråd i Marketplace eller HACS med kategorin **Integration** och sedan installera den.
+[![Öppna i Home Assistant Marknadsplatsen](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=DanneG&repository=ha-motorvarmare&category=integration)
 <!-- ha-marketplace:exclude-end -->
 
-Starta om Home Assistant efter installation eller uppdatering. Lägg sedan till **Motorvärmare** under **Inställningar → Enheter och tjänster** en gång per bil. Välj bilens brytare och en utetemperatursensor i °C eller °F. En Google-kalender kan väljas separat.
+1. Starta om Home Assistant efter installation eller uppdatering.
+2. Lägg till **Motorvärmare** under **Inställningar → Enheter och tjänster** en gång per bil. Välj bilens brytare och en utetemperatursensor (°C eller °F).
+3. Ladda om kontrollpanelen. Lägg till det medföljande kortet **Motorvärmare** och välj bilens statussensor. För flera bilar finns **Motorvärmare – översikt**.
 
-Kortet ingår i integrationen. När Home Assistant hanterar kontrollpanelens resurser registrerar integrationen kortet automatiskt vid uppstart. När integrationen är konfigurerad, ladda om webbläsaren eller Home Assistant-appen, lägg till **Motorvärmare** på en kontrollpanel och välj bilens statusentitet. Lägg till ett kort per bil eller använd **Motorvärmare – översikt** för att se flera bilar tillsammans.
+<details>
+<summary>Manuell installation, YAML eller det gamla separata kortet</summary>
 
-Om kontrollpanelens resurser är konfigurerade i YAML lägger du i stället till den här resursen i din befintliga `lovelace.resources`-lista och ändrar versionsvärdet när du uppdaterar integrationen:
+- **Manuell installation.** Kopiera hela mappen `custom_components/motorvarmare` till Home Assistants `custom_components` och följ stegen ovan.
+- **Separat kort.** När Home Assistant hanterar resurserna ersätts HACS-kortets standardadress och `/local/ha-motorvarmare-card.js` automatiskt. När det inbyggda kortet fungerar kan du ta bort det gamla kortpaketet från HACS och eventuell egen resursadress för det.
+- **Resurser i YAML.** Lägg till följande i din befintliga lista `lovelace.resources` och ersätt eventuell äldre Motorvärmare-post. Byt `VERSION` mot installerad integrationsversion efter varje uppdatering.
 
 ```yaml
-lovelace:
-  resource_mode: yaml
-  resources:
-    - url: /motorvarmare/ha-motorvarmare-card.js?v=DIN_INTEGRATIONSVERSION
-      type: module
+- url: /motorvarmare/ha-motorvarmare-card.js?v=VERSION
+  type: module
 ```
 
-Ersätt `DIN_INTEGRATIONSVERSION` med den installerade integrationsversionen. Om du redan använder YAML för resurser lägger du till raden i den befintliga `lovelace.resources`-listan och behåller alla dina övriga resurser. Byt inte en befintlig installation från lagringsläge till YAML enbart för kortets skull; i lagringsläge registrerar integrationen kortet automatiskt.
+</details>
 
-För manuell installation: kopiera hela mappen `custom_components/motorvarmare` till Home Assistants konfigurationsmapp under `custom_components`, inklusive `translations`, `brand` och `www`, och starta om Home Assistant.
+## Planera avresor
 
-### Uppgradera från det separata kortet
+- **Från kortet.** Välj ett datum och lägg till en avresa. En ring markerar i dag. Den fyllda cirkeln visar vald dag. Kontrollera datum och klockslag på sparknappen.
+- **Återkommande avresor.** Välj daglig, veckovis, månadsvis eller årlig upprepning med intervall och valfritt slutdatum. Du kan lägga till flera avresor per dag, ändra ett tillfälle eller hela serien och hoppa över nästa avresa. Om du ändrar seriens start eller upprepning rensas dess undantag.
+- **Från Google Kalender.** Anslut Google Kalender till Home Assistant och välj kalendern i bilens inställningar. Ange exakta titlar (t.ex. `EKA JOBB`) eller ord och taggar (t.ex. `kontor, #bil1`). En träff räcker oavsett stora eller små bokstäver. Ord och taggar söks i titel och beskrivning. Händelsens starttid blir avresetid. Heldagshändelser hoppas över. [Anslut Google Kalender](https://www.home-assistant.io/integrations/google/)
 
-Kortet ingår nu i integrationen och behöver inte längre installeras separat. Efter uppdatering och omstart av Home Assistant, ladda om webbläsaren eller appen och kontrollera att dina befintliga kort visas som de ska. Kortkonfiguration och bilarnas inställningar ska inte behöva skapas på nytt.
+## Värmetid
 
-För resurser som hanteras av Home Assistant flyttar integrationen automatiskt identifierade äldre resurser, inklusive det separata HACS-kortet och den tidigare manuella installationen `/local/ha-motorvarmare-card.js`. När det inbyggda kortet fungerar kan du ta bort det separata kortpaketet från HACS. Ta inte bort den nya inbyggda resursen.
+| Utetemperatur | Värmetid före avresa |
+| --- | --- |
+| Över +10 °C | Av |
+| 0 till +10 °C | 1 tim |
+| −5 °C | 1 tim 30 min |
+| −10 °C | 2 tim |
+| −20 °C eller kallare | 3 tim |
 
-Om resurserna är konfigurerade i YAML ersätter du det gamla kortets resursadress med den inbyggda adressen ovan och startar om Home Assistant. Behåll endast en resurs för Motorvärmare-kortet: om den gamla och nya JavaScript-filen laddas samtidigt kan den äldre versionen användas. Om du har använt en annan anpassad adress tar du bort den gamla resursen manuellt, laddar om webbläsaren och kontrollerar att det inbyggda kortet visas.
+Under noll tillkommer 6 minuter per minusgrad, avrundat uppåt till hela minuter. En valfri timprognos ger uppskattade starttider framåt. Brytaren styrs av uppmätt temperatur. [M Sverige / Calix](https://msverige.se/allt-om-bilen/service-och-underhall/motorvarmare/)
 
-För två bilar på samma kontrollpanel, lägg till **Motorvärmare – översikt**, välj bilarnas statusentiteter och välj **Bilkort med automatisk bredd**. När utrymmet räcker visas två kolumner. På en smal telefon hamnar bilarna under varandra. Har du två kort i en fast horisontell stapel, ersätt stapeln med det här kortet och välj samma bilar. Välj **Kompakt lista** om du vill se en sammanfattning och öppna en bil i taget.
+- **Starta nu** använder samma värmetid. **Förläng 30 minuter** förlänger pågående värmning, upp till 4 timmar totalt.
+- Schemalagd värmning kan fortsätta 30 minuter efter avresa om du väljer det i inställningarna. Värmaren stannar över +10 °C.
 
-## Avresor och kalender
+## Energi och larm
 
-Varje bils kalender öppnas på **i dag** enligt Home Assistants tidszon. Dagens datum har en ring och texten **I dag**. En fylld cirkel visar vilken dag du har valt. Nästa avresa syns högst upp på kortet. Du kan välja en annan dag och gå tillbaka med **Till i dag**. Båda knapparna för att lägga till en avresa visar vilken dag det gäller. På sparknappen ser du avresans datum och klockslag.
+- **Valfri effektsensor.** Välj pluggens sensor i W eller kW för att se aktuell effekt och beräknad energi i kWh. Lägg till fast pris per kWh eller en prissensor för att se uppskattad kostnad.
+- **Kabelpåminnelse.** Om nya effektvärden ligger under 10 W i 5 minuter efter start kan Home Assistant påminna dig att kontrollera kabeln. Du kan ändra gränsen och väntetiden. Kontrollen avslutas när effekten når gränsen. Mobilnotis är valfritt.
+- **Historik.** Se start, stopp och gångtid för de senaste 1 000 körningarna per bil. Dags-, vecko- och månadssummor för energi räknas efter lokalt slutdatum. Mätluckor och värmningar över en periodgräns kan ge ofullständiga summor.
 
-Den stora kalendern öppnas på vald dag på mobilen och i veckovy på större skärmar. Växla mellan dag och vecka eller bläddra med pilarna, även upp till 31 dagar bakåt. När du tar bort en avresa har du tio sekunder att ångra eller bekräfta direkt. Om du lämnar kortet under de tio sekunderna avbryts borttagningen.
+## Före obevakad användning
 
-Lokala engångsavresor sparas i 31 dygn. När en ny avslutad körning säkert kan kopplas till en avresa visas faktisk gångtid och tillgänglig energi och kostnad vid avresan. Äldre körningar och körningar med överlappande avresor finns i värmehistoriken.
+Prova start och stopp med bilen ansluten. Använd utrustning avsedd för belastningen och en separat maxtimer. Home Assistant behöver kontakt med brytaren för att kunna stänga av värmaren. Spara inställningarna mellan värmningarna eftersom omladdning avbryter en värmning som integrationen styr.
 
-Kortet visar sju lokala kalenderdagar i taget, med möjlighet att bläddra framåt. Här syns avresor samt uppskattad start och avstängning för värmaren. Starttiderna är **uppskattningar** och kan ändras när temperaturen ändras. En avresa från veckoschema, Google-kalender eller den egna kalendern kan visas här.
+Bilens statussensor innehåller uppgifter om avresor. Ge den samma åtkomstskydd som kalendern.
 
-Välj en dag i kortets kalender och lägg till en eller flera avresetider. Välj engångsavresa eller upprepning dagligen, veckovis, månadsvis eller årligen, med intervall och valfritt slutdatum. För veckovis upprepning kan flera veckodagar väljas. Avresorna sparas i bilens egen Home Assistant-kalender och skrivs inte till Google Kalender. En enskild avresa eller hela serien kan tas bort. Veckoschemat och den tidigare entiteten för en manuell avresa finns kvar. Den närmaste framtida avresan styr. Återkommande avresor följer Home Assistants lokala tid: klockslag som inte finns vid övergången till sommartid hoppas över och vid dubbel klocktid på hösten används den första förekomsten.
+![Exempelbilens värmarreglage, effektkurva och avresekalender.](demo-card-sv.png)
 
-Du kan ändra en enskild lokal avresa eller en hel serie. Ändras seriens start eller upprepningsregel tas dess enskilda ändringar och undantag bort; kortet varnar innan ändringen genomförs. Månadsvis upprepning följer det ursprungliga datumet och hoppar över månader där det datumet saknas. De upprepningar som stöds är de som anges ovan; exempelvis stöds inte ”andra måndagen” eller ändring av ”denna och följande”.
-
-För Google Kalender: installera först [Google Calendar-integrationen](https://www.home-assistant.io/integrations/google/), välj kalendern i bilens inställningar och ange exakta händelsetitlar och/eller ord eller taggar. Separera flera alternativ med kommatecken eller radbrytning. En händelse matchar om hela titeln stämmer med en vald titel, **eller** om något av orden/taggarna finns i titel eller beskrivning. Versaler och gemener behandlas lika. Händelsens start är avresetiden; heldagshändelser ignoreras. Kalenderändringar kan dröja innan de syns i Home Assistant.
-
-Du kan välja en väderentitet med timprognoser. Kalendern visar då uppskattade tider baserade på prognosen och märker ut källan. Saknas prognos används aktuell uppmätt temperatur. Prognosen påverkar bara visningen: den faktiska styrningen använder fortfarande temperatursensorn. Användarens behörighet till väderentiteten kontrolleras.
-
-Med **Hoppa över nästa** hoppar du över nästa avresa utan att ändra kalendern. Du kan även pausa automatisk värmning per bil och återuppta manuellt eller vid en vald tid. Paus stoppar en schemalagd körning som integrationen styr; en manuellt startad körning styrs separat. Valfria driftlarm varnar för problem med brytare, sensor och kalender i Home Assistant och via vald notismottagare. Gränsen för gammalt temperaturvärde kan ändras; saknad rapporteringstid räknas inte som ett gammalt värde.
-
-## Gångtid och start nu
-
-Gångtiden utgår från [M Sveriges rekommendationer för motorns bästa enligt Calix](https://msverige.se/allt-om-bilen/service-och-underhall/motorvarmare/): +10 °C och 0 °C → 60 minuter, −5 °C → 90 minuter, −10 °C → 120 minuter och −20 °C → 180 minuter. Mellan temperaturerna beräknas tiden linjärt och avrundas uppåt till hela minuter. M Sverige anger inga tider utanför detta intervall: integrationen väljer ingen uppvärmning över +10 °C och begränsar tiden till 180 minuter under −20 °C. Temperaturen omvandlas först till °C om sensorn visar °F.
-
-**Starta nu** använder samma beräkning och stänger av när den beräknade tiden har gått. En pågående värmning stoppas också om utetemperaturen stiger över +10 °C. Efter ett temperaturstopp kan schemalagd värmning starta igen vid +9,5 °C eller kallare om avresan fortfarande är aktuell, även efter omstart av Home Assistant. En manuellt startad värmning startar inte om automatiskt. En tillfälligt otillgänglig temperatursensor stoppar inte en pågående värmning. Ett val per bil (avstängt som standard) kan låta schemalagd värmning fortsätta i 30 minuter efter avresan, utöver den beräknade uppvärmningen före avresan. Det förlänger inte körningar med **Starta nu**; temperaturspärren gäller fortfarande. **Stoppa** avbryter en uppvärmning som integrationen själv styr. Om brytaren redan är påslagen när den planerade uppvärmningen ska börja tar integrationen inte över den. Gångtider som ställdes in i tidigare versioner används inte längre.
-
-## Valfri effekt- och energiövervakning
-
-Integrationens notiser avvaktar fem minuter efter uppstart eller omladdning så att Home Assistant och enheterna hinner bli tillgängliga. Problem som fortfarande finns efter väntetiden kan utlösa notiser; uppstartsproblem som har löst sig skickas inte i efterhand. Fördröjningen gäller bara notiser, inte styrning eller avstängning av värmaren.
-
-När integrationen styr en pågående värmning visar kortet start, planerat stopp och återstående tid. **Förläng 30 minuter** förlänger bara den pågående körningen; kalendern och inställningen för eftervärmning ändras inte. Flera tryck begränsas till fyra timmars sammanhängande värmning från körningens start. Den nya stopptiden sparas vid omstart av Home Assistant och de vanliga reglerna för stopp och temperatur gäller fortfarande. Om mindre än 30 minuter återstår till maxgränsen begränsas förlängningen till den tiden.
-
-Med en vald effektsensor kan kortet visa en graf över effektvärden i watt, uppskattad energi i kWh och uppskattad kostnad när den är tillgänglig. Efter en kontrollerad omstart kan en återupptagen värmning få en ny mätperiod; kortet visar mätperiodens start så att en delmätning inte förväxlas med hela körningen. Saknade mätvärden och omstart kan ge luckor i grafen eller göra uppskattningar otillgängliga; grafen och kostnaden är inte en elmätare för debitering. Effektsensorn är valfri och tidslinjen och förlängningen fungerar även utan den.
-
-I inställningarna för varje bil kan du välja smartpluggens effektsensor i W eller kW. Integrationen uppskattar energiförbrukningen utifrån effekten över tid; du behöver ingen separat energisensor. Kortet visar aktuell effekt och uppskattad energi för den pågående eller senaste körningen. Det senast rapporterade effektvärdet antas gälla tills nästa värde kommer, så hur exakt beräkningen blir beror på hur ofta sensorn rapporterar förändringar. Om en körnings förbrukning inte kan beräknas tillförlitligt visas den som otillgänglig. Spara inställningarna mellan körningarna: när de sparas laddas integrationen om och en körning som den styr avbryts.
-
-Om du har valt en effektsensor och aktiverat lågeffektslarmet kontrolleras effekten vid start. Varning skickas om ett giltigt effektvärde ligger under gränsen sammanhängande under den valda väntetiden. Förvalet är 10 W under fem minuter, och båda värdena går att ändra. När effekten når gränsen avslutas kontrollen för den körningen, så att en senare effektnedgång inte utlöser larmet. Kontrolltiden avslutas också senast väntetiden plus fem minuter efter ett observerat påslag. Saknade mätvärden räknas inte som noll eller som sammanhängande låg effekt. Om Home Assistant startar om eller brytaren blir otillgänglig under körningen avbryts kontrollen tills ett nytt påslag observeras efter att brytaren varit av. En notis visas i Home Assistant och du kan även välja en mobil notismottagare. Varje kanal meddelar högst en gång per påslag. Låg effekt kan även ha andra orsaker, till exempel en termostat; kontrollera kabeln och utrustningen.
-
-Du kan även aktivera ett separat larm för avvikande effekt och ange en undre gräns, en övre gräns eller båda. Det kräver en effektsensor. Den undre gränsen kontrolleras endast vid start, med sin egen fördröjning och samma marginal på fem minuter; kontrollen avslutas när gränsen nås eller startperioden löper ut. Den övre gränsen övervakas under hela körningen. Effekten måste ligga utanför respektive gräns sammanhängande under den valda fördröjningen, som är fem minuter som standard. Det vanliga lågeffektslarmet fungerar separat. Även en termostat eller annan ansluten last kan orsaka en avvikelse.
-
-Välj vid behov ett fast elpris per kWh eller en prissensor och valuta. Med effektsensor summeras den uppskattade kostnaden löpande utifrån effekten och priset, där senast rapporterade värden antas gälla tills de ändras. Saknade mätvärden, avbrott eller omstart under körningen kan göra kostnaden otillgänglig. En vald prissensor går före fast pris, och fast pris används inte som tyst reserv om sensorn saknas. Äldre konfigurationer med enbart en ackumulerande energisensor uppskattar fortfarande kostnaden med priset vid körningens slut. Kostnaden är en uppskattning, inte en elräkning; gamla körningar prissätts inte i efterhand och saknade värden eller blandade valutor markeras som ofullständiga.
-
-## Historik över värmningar
-
-Integrationen sparar de 1 000 senaste perioderna då brytaren varit på separat för varje bil. För nya körningar sparas även uppmätt utetemperatur vid starten när den är tillgänglig. I kortet kan du se start, stopp, gångtid och uppskattad energi när den finns tillgänglig. Att brytaren varit på betyder inte säkert att värmaren dragit effekt. Historiken börjar samlas in från version 0.7.0; äldre körningar återskapas inte. Körningar sparas även utan effektsensor, och saknade eller ofullständiga energiberäkningar visas inte som noll.
-
-Summor per dag, vecka och månad utgår från de registrerade, avslutade körningarna och grupperas efter lokalt slutdatum. Om en körning passerar en periodgräns går energin inte att dela upp tillförlitligt; berörda perioder markeras som ofullständiga och summan för slutperioden kan bli för hög. Även saknade mätvärden och ofullständig historik markeras. Upp till 366 dags-, 104 vecko- och 36 månadssummor visas.
-
-## Fler sensorer
-
-Varje bil får separata sensorer för nästa avresa, planerad start, återstående värmetid, energi för aktuell eller senaste körning, registrerad energi för dag/vecka/månad samt uppskattad energi och kostnad för nästa värmning. De kan användas i andra kort och automationer. Periodvärdena gäller registrerad historik, inte pluggens totala livstidsförbrukning; ofullständiga perioder visas som otillgängliga med partiell information i attribut.
-
-Uppskattningen för nästa värmning använder medeleffekten från en tidigare fullständig körning och den aktuellt beräknade gångtiden, inklusive eventuell eftervärmning. Kostnaden använder aktuellt pris, inte framtida elpriser. Resultatet är en uppskattning som kan påverkas av väder, termostat och hur ofta mätvärden rapporteras. Det visas som otillgängligt utan en fullständig körning för den valda brytaren och mätkällan, eller utan en lämplig kommande värmning. Äldre historik utan denna märkning finns kvar men kan inte ge en prognos förrän en ny fullständig körning har registrerats.
-
-## Drift och säkerhet
-
-Testa start och avstängning med den faktiska brytaren och värmaren innan lösningen används utan uppsikt. Home Assistant måste kunna kommunicera med brytaren för att avstängningskommandot ska nå fram. Använd en separat oberoende maxtimer och utrustning som är avsedd för belastningen och miljön. Följ även bilens och värmarens tillverkaranvisningar.
-
-Integrationen har isolerade tester och har ännu inte verifierats fullt ut på verklig utrustning. Tidpunkter kontrolleras ungefär varje minut och kan påverkas av avbrott eller fördröjd kalendersynkronisering.
-
-Statusentiteten innehåller kalenderbaserade uppgifter om avresor. Den som får läsa statusentiteten kan se uppgifterna; skydda den därför på samma sätt som kalendern.
-
-## Licens
-
-[MIT](../LICENSE).
+[MIT-licens](../LICENSE)

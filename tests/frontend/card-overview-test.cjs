@@ -46,7 +46,7 @@ async function main() {
       attrs.operational_problems=['temperature_stale'];overview.hass={...window.hass};
     });
     assert.match(await overview.locator('[data-entity="sensor.sivan_status"]').innerText(),/kabeln/i,'Low-power cable warning must be visible in the overview');
-    assert.match(await overview.locator('[data-entity="sensor.sivan_status"]').innerText(),/temperaturgivaren.*rapporterat/i,'Operational warnings must be visible in the overview');
+    assert.match(await overview.locator('[data-entity="sensor.sivan_status"]').innerText(),/Temperaturvärdet kan vara inaktuellt/,'Operational warnings must be visible in the overview');
     assert.ok(await page.evaluate(()=>Math.abs(window.scrollY-window.overviewScroll)<3),'Live warnings must not jump the dashboard to the top');
     await page.evaluate(()=>{window.beforeOverviewNode=document.querySelector('motorvarmare-overview').shadowRoot.querySelector('.car');
       window.hass.states['sensor.sivan_status'].attributes.temperature=-8;
@@ -64,8 +64,8 @@ async function main() {
     await page.evaluate(()=>{window.hass.language='en';window.hass.locale.language='en';window.hass.states['sensor.eka_status'].state='unavailable';document.querySelector('motorvarmare-overview').hass={...window.hass};});
     assert.match(await overview.locator('.wrap').innerText(),/Engine heaters/);
     assert.match(await overview.locator('.wrap').innerText(),/Status unavailable/);
-    assert.match(await overview.locator('[data-entity="sensor.sivan_status"]').innerText(),/temperature sensor.*reported/i,'Operational warning is translated');
-    assert.match(await overview.locator('[data-entity="sensor.sivan_status"]').innerText(),/cable.*connected/i,'Cable warning is translated');
+    assert.match(await overview.locator('[data-entity="sensor.sivan_status"]').innerText(),/temperature reading may be out of date/i,'Operational warning is translated');
+    assert.match(await overview.locator('[data-entity="sensor.sivan_status"]').innerText(),/heater cable is plugged in/i,'Cable warning is translated');
     assert.ok(await page.evaluate(()=>window.customCards.some(card=>card.type==='motorvarmare-overview')));
     await page.evaluate(()=>{
       const editor=document.createElement('motorvarmare-overview-editor');

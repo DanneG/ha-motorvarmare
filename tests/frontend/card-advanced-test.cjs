@@ -61,7 +61,7 @@ async function main() {
     const requests=await page.evaluate(()=>window.calls.filter(c=>c.ws?.type==='motorvarmare/get_schedule').map(c=>c.ws));
     assert.equal(requests.length,2);assert.equal(requests[0].start,'2026-11-12');assert.equal(requests[1].start,'2026-11-19');
     await page.evaluate(()=>window.pending[1].resolve({events:[{departure:'2026-11-20T09:00:00Z',start:'2026-11-20T08:24:00Z',source:'Kalender'}],calendar_error:true}));
-    await page.waitForFunction(()=>document.querySelector('motorvarmare-card').shadowRoot.textContent.includes('vissa avresor kan saknas'));
+    await page.waitForFunction(()=>document.querySelector('motorvarmare-card').shadowRoot.textContent.includes('Vissa avresor kan saknas'));
     await page.evaluate(()=>window.pending[0].resolve({events:[{departure:'2026-11-13T09:00:00Z',start:'2026-11-13T08:24:00Z',source:'Planerad'}],calendar_error:false}));
     await page.waitForTimeout(20);
     assert.equal(await card.locator('[data-mobile-departure="2026-11-13T09:00:00Z"]').count(),0);
@@ -122,7 +122,7 @@ async function main() {
     assert.equal(await card.locator('#calendar-date').inputValue(),'2026-10-30');
     assert.equal(await card.locator('#calendar-summary').inputValue(),'Avresa');
     await card.locator('#calendar-summary').fill('Arbete');await card.locator('#add-calendar').click();
-    assert.match(await page.evaluate(()=>document.querySelector("motorvarmare-card").shadowRoot.textContent),/Bekräfta informationen/);
+    assert.match(await page.evaluate(()=>document.querySelector("motorvarmare-card").shadowRoot.textContent),/Bekräfta serieändringen/);
     assert.equal(await page.evaluate(()=>window.calls.length),0);
     await card.locator('#confirm-series-change').check();await card.locator('#add-calendar').click();
     update=(await page.evaluate(()=>window.calls.shift())).ws;

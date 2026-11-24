@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Lägg till en bil",
-        "description": "Ställ in en bil. Lägg till integrationen igen för ytterligare en bil. Gångtiden beräknas automatiskt från utetemperaturen enligt rekommendationer för motorns bästa: ingen uppvärmning över +10 °C och högst 180 minuter.",
+        "description": "Lägg till integrationen en gång per bil. Utetemperaturen avgör värmetiden före avresa, högst 3 timmar.",
         "data": {
           "name": "Bilens namn",
           "switch_entity": "Brytare för motorvärmaren",
@@ -13,51 +13,47 @@
           "event_keywords": "Ord eller taggar (valfritt)",
           "power_entity": "Effektsensor (valfritt)",
           "power_min_watts": "Gräns för låg effekt vid start",
-          "power_delay_minutes": "Väntetid för lågeffektslarm vid start",
-          "notify_entity": "Mottagare för notis (valfritt)",
-          "post_departure_enabled": "Fortsätt värma 30 minuter efter avresa",
-          "power_alarm_enabled": "Aktivera larm vid låg effekt vid start",
+          "power_delay_minutes": "Väntetid för kabelvarning",
+          "notify_entity": "Extra notismottagare (valfritt)",
+          "post_departure_enabled": "Värm 30 minuter efter avresa",
+          "power_alarm_enabled": "Varna vid låg effekt vid start",
           "weather_entity": "Väderprognos (valfritt)",
           "energy_price_entity": "Elprissensor (valfritt)",
           "energy_price": "Fast elpris per kWh (valfritt)",
           "energy_currency": "Valuta",
-          "operation_alerts_enabled": "Larma vid driftproblem",
+          "operation_alerts_enabled": "Varna vid driftproblem",
           "temperature_max_age_hours": "Varna om temperaturvärdet är äldre än",
           "power_deviation_enabled": "Larma vid avvikande effekt",
           "power_expected_min_watts": "Lägsta normala effekt (valfritt)",
           "power_expected_max_watts": "Högsta normala effekt (valfritt)",
-          "power_deviation_delay_minutes": "Fördröjning före effektavvikelselarm"
+          "power_deviation_delay_minutes": "Väntetid vid avvikande effekt"
         },
         "data_description": {
-          "event_titles": "Ange fullständiga händelsetitlar, en per rad eller separerade med kommatecken. Exempel: TILL JOBBET. Mellanslag får ingå.",
-          "event_keywords": "Ange ord, fraser eller taggar, en per rad eller separerade med kommatecken. En titel eller ett ord/en tagg räcker för träff. Stora och små bokstäver behandlas lika.",
-          "power_entity": "Välj pluggens effektsensor i W eller kW. Den används för att uppskatta energiförbrukningen och varna vid låg effekt under starten.",
-          "power_min_watts": "Effekt under den här gränsen räknas som låg under starten.",
-          "power_delay_minutes": "Varna när effekten har varit låg sammanhängande så här länge under starten. Kontrollen avslutas när gränsen nås, senast efter väntetiden plus fem minuter.",
-          "notify_entity": "Välj en notisentitet, till exempel din telefon, om du även vill få en mobilnotis. När larmet är aktiverat visas alltid en notis i Home Assistant.",
-          "post_departure_enabled": "Låt schemalagd värmning fortsätta i 30 minuter efter avresan, utöver tiden före avresa. Gäller inte Starta nu. Temperaturspärren gäller fortfarande.",
-          "power_alarm_enabled": "Kontrollera låg effekt endast vid start. När gränsen nås avslutas kontrollen för körningen. Energiövervakningen fungerar även om larmet är avstängt.",
-          "weather_entity": "Använd timprognos för uppskattade framtida tider i kalendern. Den faktiska utetemperaturen styr värmaren.",
-          "energy_price_entity": "Om en sensor väljs uppskattas kostnaden löpande utifrån rapporterad effekt och pris; sensorn går före fast pris. Saknade värden kan göra kostnaden otillgänglig.",
-          "energy_price": "Ange ett fast pris per kWh i vald valuta. Lämna tomt om du inte vill visa kostnad.",
-          "energy_currency": "Trebokstavskod, exempelvis SEK eller EUR.",
-          "operation_alerts_enabled": "Varna i Home Assistant och till vald notismottagare om brytare, temperatur eller kalender inte fungerar.",
-          "temperature_max_age_hours": "Ange 0 för att stänga av åldersvarningen. Sensorer rapporterar olika ofta.",
-          "power_deviation_enabled": "Kontrollera låg effekt vid start och hög effekt under hela körningen. Kräver en effektsensor och minst en gräns. En termostat eller annan last kan också orsaka en avvikelse.",
-          "power_expected_min_watts": "Valfri undre gräns i watt, kontrolleras endast vid start. Kabelvarningen har en separat gräns.",
-          "power_expected_max_watts": "Valfri övre gräns i watt, kontrolleras under hela körningen.",
-          "power_deviation_delay_minutes": "Effekten måste avvika sammanhängande så här länge innan larm skickas. Kontroll av låg effekt pågår högst fördröjningen plus fem minuter efter start."
+          "event_titles": "Hela titeln, till exempel TILL JOBBET. Skilj flera titlar med komma eller radbrytning.",
+          "event_keywords": "Sök i titel och beskrivning. Skilj ord, fraser och taggar med komma eller radbrytning. En titel eller ett sökord räcker, oavsett skiftläge.",
+          "power_entity": "Välj uttagets effekt i W eller kW för energiuppskattning och effektlarm.",
+          "power_delay_minutes": "Effekten måste ligga under gränsen hela väntetiden.",
+          "notify_entity": "Larm visas i Home Assistant. Välj exempelvis telefonen för att även få dem där.",
+          "post_departure_enabled": "Gäller schemalagda avresor upp till temperaturgränsen.",
+          "power_alarm_enabled": "Kabelkontrollen avslutas när effekten når gränsen. Energimätningen fungerar oberoende av larmet.",
+          "weather_entity": "Timprognosen ger kalenderns uppskattade tider. Utegivaren styr värmaren.",
+          "energy_price_entity": "Sensorn har företräde framför fast pris. Luckor i mätningen kan ge ofullständig kostnad.",
+          "energy_currency": "Tre bokstäver, till exempel SEK.",
+          "operation_alerts_enabled": "Gäller brytaren, utegivaren och kalendern.",
+          "temperature_max_age_hours": "Ange 0 för att stänga av varningen.",
+          "power_deviation_enabled": "Kräver en effektsensor och minst en gräns. Den undre gäller vid start, den övre under hela värmningen.",
+          "power_deviation_delay_minutes": "Effekten måste ligga utanför gränsen hela väntetiden."
         }
       }
     },
     "error": {
       "invalid_name": "Ange ett namn för bilen.",
-      "invalid_tag": "Ange en kalenderhändelsetagg.",
-      "missing_calendar_rule": "Ange minst en titel, ett ord eller en tagg för den valda kalendern.",
-      "duplicate_switch": "Brytaren används redan av en annan bil.",
+      "invalid_tag": "Ange en kalendertagg.",
+      "missing_calendar_rule": "Ange en titel, ett ord eller en tagg för kalendern.",
+      "duplicate_switch": "En annan bil använder redan brytaren.",
       "invalid_currency": "Ange en valutakod med tre bokstäver, till exempel SEK.",
-      "invalid_power_range": "Ange giltiga effektgränser där den lägre är mindre än den högre.",
-      "power_deviation_needs_sensor": "Välj en effektsensor för effektavvikelselarmet.",
+      "invalid_power_range": "Ange 0–100 000 W. Miniminivån måste vara lägre än maxnivån.",
+      "power_deviation_needs_sensor": "Välj en effektsensor för avvikelselarmet.",
       "power_deviation_needs_limit": "Ange minst en effektgräns för avvikelselarmet."
     }
   },
@@ -65,7 +61,7 @@
     "step": {
       "init": {
         "title": "Ändra bilens inställningar",
-        "description": "Välj brytare, utetemperatursensor och eventuellt kalender. Töm kalenderfältet för att stänga av kalenderstyrning. Gångtiden beräknas automatiskt från utetemperaturen enligt rekommendationer för motorns bästa: ingen uppvärmning över +10 °C och högst 180 minuter.",
+        "description": "En pågående värmning som integrationen styr kan avbrytas när du sparar.",
         "data": {
           "name": "Bilens namn",
           "switch_entity": "Brytare för motorvärmaren",
@@ -75,51 +71,48 @@
           "event_keywords": "Ord eller taggar (valfritt)",
           "power_entity": "Effektsensor (valfritt)",
           "power_min_watts": "Gräns för låg effekt vid start",
-          "power_delay_minutes": "Väntetid för lågeffektslarm vid start",
-          "notify_entity": "Mottagare för notis (valfritt)",
-          "post_departure_enabled": "Fortsätt värma 30 minuter efter avresa",
-          "power_alarm_enabled": "Aktivera larm vid låg effekt vid start",
+          "power_delay_minutes": "Väntetid för kabelvarning",
+          "notify_entity": "Extra notismottagare (valfritt)",
+          "post_departure_enabled": "Värm 30 minuter efter avresa",
+          "power_alarm_enabled": "Varna vid låg effekt vid start",
           "weather_entity": "Väderprognos (valfritt)",
           "energy_price_entity": "Elprissensor (valfritt)",
           "energy_price": "Fast elpris per kWh (valfritt)",
           "energy_currency": "Valuta",
-          "operation_alerts_enabled": "Larma vid driftproblem",
+          "operation_alerts_enabled": "Varna vid driftproblem",
           "temperature_max_age_hours": "Varna om temperaturvärdet är äldre än",
           "power_deviation_enabled": "Larma vid avvikande effekt",
           "power_expected_min_watts": "Lägsta normala effekt (valfritt)",
           "power_expected_max_watts": "Högsta normala effekt (valfritt)",
-          "power_deviation_delay_minutes": "Fördröjning före effektavvikelselarm"
+          "power_deviation_delay_minutes": "Väntetid vid avvikande effekt"
         },
         "data_description": {
-          "event_titles": "Ange fullständiga händelsetitlar, en per rad eller separerade med kommatecken. Exempel: TILL JOBBET. Mellanslag får ingå.",
-          "event_keywords": "Ange ord, fraser eller taggar, en per rad eller separerade med kommatecken. En titel eller ett ord/en tagg räcker för träff. Stora och små bokstäver behandlas lika.",
-          "power_entity": "Välj pluggens effektsensor i W eller kW. Den används för att uppskatta energiförbrukningen och varna vid låg effekt under starten.",
-          "power_min_watts": "Effekt under den här gränsen räknas som låg under starten.",
-          "power_delay_minutes": "Varna när effekten har varit låg sammanhängande så här länge under starten. Kontrollen avslutas när gränsen nås, senast efter väntetiden plus fem minuter.",
-          "notify_entity": "Välj en notisentitet, till exempel din telefon, om du även vill få en mobilnotis. När larmet är aktiverat visas alltid en notis i Home Assistant.",
-          "post_departure_enabled": "Låt schemalagd värmning fortsätta i 30 minuter efter avresan, utöver tiden före avresa. Gäller inte Starta nu. Temperaturspärren gäller fortfarande.",
-          "power_alarm_enabled": "Kontrollera låg effekt endast vid start. När gränsen nås avslutas kontrollen för körningen. Energiövervakningen fungerar även om larmet är avstängt.",
-          "weather_entity": "Använd timprognos för uppskattade framtida tider i kalendern. Den faktiska utetemperaturen styr värmaren.",
-          "energy_price_entity": "Om en sensor väljs uppskattas kostnaden löpande utifrån rapporterad effekt och pris; sensorn går före fast pris. Saknade värden kan göra kostnaden otillgänglig.",
-          "energy_price": "Ange ett fast pris per kWh i vald valuta. Lämna tomt om du inte vill visa kostnad.",
-          "energy_currency": "Trebokstavskod, exempelvis SEK eller EUR.",
-          "operation_alerts_enabled": "Varna i Home Assistant och till vald notismottagare om brytare, temperatur eller kalender inte fungerar.",
-          "temperature_max_age_hours": "Ange 0 för att stänga av åldersvarningen. Sensorer rapporterar olika ofta.",
-          "power_deviation_enabled": "Kontrollera låg effekt vid start och hög effekt under hela körningen. Kräver en effektsensor och minst en gräns. En termostat eller annan last kan också orsaka en avvikelse.",
-          "power_expected_min_watts": "Valfri undre gräns i watt, kontrolleras endast vid start. Kabelvarningen har en separat gräns.",
-          "power_expected_max_watts": "Valfri övre gräns i watt, kontrolleras under hela körningen.",
-          "power_deviation_delay_minutes": "Effekten måste avvika sammanhängande så här länge innan larm skickas. Kontroll av låg effekt pågår högst fördröjningen plus fem minuter efter start."
+          "event_titles": "Hela titeln, till exempel TILL JOBBET. Skilj flera titlar med komma eller radbrytning.",
+          "event_keywords": "Sök i titel och beskrivning. Skilj ord, fraser och taggar med komma eller radbrytning. En titel eller ett sökord räcker, oavsett skiftläge.",
+          "power_entity": "Välj uttagets effekt i W eller kW för energiuppskattning och effektlarm.",
+          "power_delay_minutes": "Effekten måste ligga under gränsen hela väntetiden.",
+          "notify_entity": "Larm visas i Home Assistant. Välj exempelvis telefonen för att även få dem där.",
+          "post_departure_enabled": "Gäller schemalagda avresor upp till temperaturgränsen.",
+          "power_alarm_enabled": "Kabelkontrollen avslutas när effekten når gränsen. Energimätningen fungerar oberoende av larmet.",
+          "weather_entity": "Timprognosen ger kalenderns uppskattade tider. Utegivaren styr värmaren.",
+          "energy_price_entity": "Sensorn har företräde framför fast pris. Luckor i mätningen kan ge ofullständig kostnad.",
+          "energy_currency": "Tre bokstäver, till exempel SEK.",
+          "operation_alerts_enabled": "Gäller brytaren, utegivaren och kalendern.",
+          "temperature_max_age_hours": "Ange 0 för att stänga av varningen.",
+          "power_deviation_enabled": "Kräver en effektsensor och minst en gräns. Den undre gäller vid start, den övre under hela värmningen.",
+          "power_deviation_delay_minutes": "Effekten måste ligga utanför gränsen hela väntetiden.",
+          "calendar_entity": "Töm fältet för att koppla bort kalendern."
         }
       }
     },
     "error": {
       "invalid_name": "Ange ett namn för bilen.",
-      "invalid_tag": "Ange en kalenderhändelsetagg.",
-      "missing_calendar_rule": "Ange minst en titel, ett ord eller en tagg för den valda kalendern.",
-      "duplicate_switch": "Brytaren används redan av en annan bil.",
+      "invalid_tag": "Ange en kalendertagg.",
+      "missing_calendar_rule": "Ange en titel, ett ord eller en tagg för kalendern.",
+      "duplicate_switch": "En annan bil använder redan brytaren.",
       "invalid_currency": "Ange en valutakod med tre bokstäver, till exempel SEK.",
-      "invalid_power_range": "Ange giltiga effektgränser där den lägre är mindre än den högre.",
-      "power_deviation_needs_sensor": "Välj en effektsensor för effektavvikelselarmet.",
+      "invalid_power_range": "Ange 0–100 000 W. Miniminivån måste vara lägre än maxnivån.",
+      "power_deviation_needs_sensor": "Välj en effektsensor för avvikelselarmet.",
       "power_deviation_needs_limit": "Ange minst en effektgräns för avvikelselarmet."
     }
   },
@@ -148,7 +141,7 @@
         "name": "Stoppa"
       },
       "extend_30": {
-        "name": "Förläng värmning 30 minuter"
+        "name": "Förläng värmningen med 30 minuter"
       },
       "skip_next": {
         "name": "Hoppa över nästa avresa"
@@ -200,48 +193,48 @@
     },
     "time": {
       "weekly_time_monday": {
-        "name": "Måndag avresetid"
+        "name": "Avresetid på måndagar"
       },
       "weekly_time_tuesday": {
-        "name": "Tisdag avresetid"
+        "name": "Avresetid på tisdagar"
       },
       "weekly_time_wednesday": {
-        "name": "Onsdag avresetid"
+        "name": "Avresetid på onsdagar"
       },
       "weekly_time_thursday": {
-        "name": "Torsdag avresetid"
+        "name": "Avresetid på torsdagar"
       },
       "weekly_time_friday": {
-        "name": "Fredag avresetid"
+        "name": "Avresetid på fredagar"
       },
       "weekly_time_saturday": {
-        "name": "Lördag avresetid"
+        "name": "Avresetid på lördagar"
       },
       "weekly_time_sunday": {
-        "name": "Söndag avresetid"
+        "name": "Avresetid på söndagar"
       }
     },
     "switch": {
       "weekly_enabled_monday": {
-        "name": "Måndag veckoschema"
+        "name": "Veckoschema för måndagar"
       },
       "weekly_enabled_tuesday": {
-        "name": "Tisdag veckoschema"
+        "name": "Veckoschema för tisdagar"
       },
       "weekly_enabled_wednesday": {
-        "name": "Onsdag veckoschema"
+        "name": "Veckoschema för onsdagar"
       },
       "weekly_enabled_thursday": {
-        "name": "Torsdag veckoschema"
+        "name": "Veckoschema för torsdagar"
       },
       "weekly_enabled_friday": {
-        "name": "Fredag veckoschema"
+        "name": "Veckoschema för fredagar"
       },
       "weekly_enabled_saturday": {
-        "name": "Lördag veckoschema"
+        "name": "Veckoschema för lördagar"
       },
       "weekly_enabled_sunday": {
-        "name": "Söndag veckoschema"
+        "name": "Veckoschema för söndagar"
       },
       "automation_paused": {
         "name": "Pausa automatisk värmning"
@@ -259,7 +252,7 @@
       "message": "Utetemperaturen är inte tillgänglig."
     },
     "zero_runtime": {
-      "message": "Den beräknade uppvärmningstiden är noll vid den här temperaturen."
+      "message": "Vid den här temperaturen är värmetiden noll."
     },
     "turn_on_failed": {
       "message": "Kunde inte slå på brytaren."
@@ -268,19 +261,19 @@
       "message": "Integrationen styr ingen pågående uppvärmning."
     },
     "cannot_extend": {
-      "message": "Den pågående värmningen kan inte förlängas. Kontrollera status och maxgräns."
+      "message": "Värmningen kan inte förlängas. Kontrollera status och tidsgräns."
     },
     "turn_off_failed": {
-      "message": "Kunde inte stänga av brytaren; försöker igen."
+      "message": "Kunde inte stänga av brytaren. Försöker igen."
     },
     "departure_invalid": {
       "message": "Ange ett datum och klockslag för avresan."
     },
     "departure_nonexistent_time": {
-      "message": "Klockslaget finns inte på grund av övergång till sommartid. Välj en annan tid."
+      "message": "Klockan ställs fram då. Välj en annan tid."
     },
     "departure_past": {
-      "message": "Avresan måste vara i framtiden."
+      "message": "Välj en avresetid i framtiden."
     },
     "departure_not_found": {
       "message": "Avresan kunde inte hittas."
@@ -289,7 +282,7 @@
       "message": "Den här upprepningsregeln eller åtgärden stöds inte."
     },
     "timed_departure_required": {
-      "message": "Välj ett datum och klockslag, inte en heldagshändelse."
+      "message": "Ange både datum och klockslag för avresan."
     },
     "timezone_required": {
       "message": "Avresetiden måste innehålla en tidszon."
@@ -298,7 +291,7 @@
       "message": "Det finns ingen kommande avresa att hoppa över."
     },
     "pause_until_past": {
-      "message": "Välj en framtida tid för återupptagning."
+      "message": "Välj en framtida tid då värmningen ska återupptas."
     }
   }
 }

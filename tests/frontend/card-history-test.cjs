@@ -45,7 +45,7 @@ async function main() {
     assert.match(await card.locator('.history-section').innerText(),/Uppdatera integrationen för att visa historiken/,'Older integrations should show update guidance');
     await page.evaluate(()=>window.changeHistory([]));
     assert.equal(await toggle.getAttribute('aria-expanded'),'true','Opening stays expanded on HA updates');
-    assert.match(await card.locator('.history-section').innerText(),/Inga tidigare värmningar/);
+    assert.match(await card.locator('.history-section').innerText(),/Inga registrerade värmningar ännu/);
     const entries=[
       {start:'2026-11-06T07:00:00+01:00',end:'2026-11-06T08:15:00+01:00',duration_minutes:75,energy_kwh:1.25,complete:true},
       {start:'2026-11-05T22:30:00+01:00',end:'2026-11-06T00:00:00+01:00',duration_minutes:90,energy_kwh:null,complete:true},

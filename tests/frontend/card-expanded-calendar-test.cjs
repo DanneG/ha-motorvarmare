@@ -65,7 +65,7 @@ async function exercise(browser,width) {
   assert.equal(await modal.evaluate(el=>el===window.modalReference),true,'A state update must not replace the open modal');
   assert.ok(Math.abs((await dashboard.evaluate(el=>el.scrollTop))-before)<3,'Underlying dashboard must stay in place while open');
   await page.evaluate(()=>{const h=window.hass,a=h.states['sensor.status'].attributes;Object.assign(a,{power_sensor_configured:true,energy_monitor_status:'low_power',alarm_active:true,error:'Kalendern kan inte läsas'});h.states['switch.heater'].state='on';document.querySelector('motorvarmare-card').hass={...h};});
-  assert.match(await modal.innerText(),/motorvärmarkabeln/i,'The cable warning must remain visible inside the dialog');
+  assert.match(await modal.innerText(),/Låg effekt vid start\. Kontrollera att värmarkabeln sitter i/,'The cable warning must remain visible inside the dialog');
   assert.match(await modal.innerText(),/kalendern kan inte läsas/i,'Calendar errors must remain visible inside the dialog');
   await page.evaluate(()=>{const h=window.hass,a=h.states['sensor.status'].attributes;Object.assign(a,{alarm_active:false,error:null});h.states['switch.heater'].state='off';document.querySelector('motorvarmare-card').hass={...h};});
   // Very short blocks can be too small to tap. The open list remains a

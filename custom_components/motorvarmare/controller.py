@@ -1176,11 +1176,11 @@ class HeaterController:
         sv = language.startswith("sv")
         messages = {
             "switch_unavailable": ("Brytaren är inte tillgänglig. Kontrollera anslutningen.", "The switch is unavailable. Check its connection."),
-            "start_failed": ("Värmaren kunde inte bekräftas påslagen. Kontrollera brytaren.", "The heater switch did not confirm turning on. Check the switch."),
-            "stop_failed": ("Värmaren kunde inte bekräftas avstängd. Kontrollera brytaren.", "The heater switch did not confirm turning off. Check the switch."),
+            "start_failed": ("Starten är obekräftad. Kontrollera att brytaren är på.", "Start unconfirmed. Check that the switch is on."),
+            "stop_failed": ("Stoppet är obekräftat. Kontrollera att brytaren är av.", "Stop unconfirmed. Check that the switch is off."),
             "temperature_unavailable": ("Utetemperaturen är inte tillgänglig. Kontrollera sensorn.", "Outdoor temperature is unavailable. Check the sensor."),
-            "temperature_stale": ("Temperatursensorn verkar inte ha rapporterat på länge. Kontrollera sensorn.", "The temperature sensor has not reported recently. Check the sensor."),
-            "calendar_unavailable": ("Kalendern kan inte läsas. Kontrollera kalenderanslutningen.", "The calendar cannot be read. Check its connection."),
+            "temperature_stale": ("Temperaturvärdet är gammalt. Kontrollera utegivaren.", "The outdoor reading is out of date. Check the temperature sensor."),
+            "calendar_unavailable": ("Kalendern kan inte läsas. Kontrollera anslutningen.", "The calendar is unavailable. Check its connection."),
         }
         title = ("Motorvärmare: " if sv else "Engine heater: ") + self.entry.title
         notify_entity = self.config.get("notify_entity")

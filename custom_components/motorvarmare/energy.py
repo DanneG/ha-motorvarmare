@@ -1184,10 +1184,10 @@ class EnergyMonitor:
         language = str(getattr(getattr(self.hass, "config", None), "language", "en") or "en").lower()
         if language.startswith("sv"):
             title = f"Motorvärmare: {self.entry.title}"
-            message = "Värmaren är på men effekten är låg. Kontrollera att motorvärmarkabeln är ansluten."
+            message = "Låg effekt vid start. Kontrollera att värmarkabeln sitter i."
         else:
             title = f"Engine heater: {self.entry.title}"
-            message = "The heater is on but power draw is low. Check that the engine heater cable is connected."
+            message = "Low power at startup. Check that the heater cable is plugged in."
         targets = [("persistent", "persistent_notification", "create", {"title": title, "message": message, "notification_id": f"{DOMAIN}_{self.entry.entry_id}_low_power"})]
         entity = self.config.get("notify_entity")
         if isinstance(entity, str) and entity.startswith("notify."):
@@ -1224,12 +1224,12 @@ class EnergyMonitor:
         language = str(getattr(getattr(self.hass, "config", None), "language", "en") or "en").lower()
         if language.startswith("sv"):
             title = f"Motorvärmare: {self.entry.title}"
-            message = ("Effekten har under en tid varit " + ("under" if direction == "low" else "över")
-                       + " det inställda normalintervallet. Kontrollera värmaren och inställningarna.")
+            message = ("Effekten ligger " + ("under" if direction == "low" else "över")
+                       + " din gräns. Kontrollera värmaren och effektgränsen.")
         else:
             title = f"Engine heater: {self.entry.title}"
-            message = ("Power has been " + ("below" if direction == "low" else "above")
-                       + " the configured normal range for a while. Check the heater and settings.")
+            message = ("Power is " + ("below" if direction == "low" else "above")
+                       + " your limit. Check the heater and its power limit.")
         targets = [("persistent", "persistent_notification", "create", {
             "title": title, "message": message,
             "notification_id": f"{DOMAIN}_{self.entry.entry_id}_power_deviation_{direction}"})]

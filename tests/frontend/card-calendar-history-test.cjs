@@ -84,7 +84,7 @@ async function main() {
     assert.match(await recorded.innerText(),/1[.,]25 kWh/);
     await historyDay.selectOption('2026-11-08');
     assert.equal(await entries.count(),0);
-    assert.match(await recorded.innerText(),/No recorded heating sessions on this day/,'Empty days are explained');
+    assert.match(await recorded.innerText(),/No heating recorded that day/,'Empty days are explained');
     await page.setViewportSize({width:390,height:1000});
     await card.locator('#open-calendar').click();
     const modal=card.locator('#calendar-expanded');
