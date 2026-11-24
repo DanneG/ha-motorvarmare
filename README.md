@@ -56,7 +56,7 @@ Choose a departure time. Motorvärmare calculates when to switch on each car's h
 | −10 °C | 2 h |
 | −20 °C or colder | 3 h |
 
-Below zero, add 6 minutes per degree and round up to a whole minute. An optional hourly forecast estimates future start times. The switch uses the measured temperature. [M Sverige / Calix](https://msverige.se/allt-om-bilen/service-och-underhall/motorvarmare/)
+Below zero, add 6 minutes per degree and round up to a whole minute. An optional hourly forecast estimates future start times. Scheduled heating uses the measured temperature. [M Sverige / Calix](https://msverige.se/allt-om-bilen/service-och-underhall/motorvarmare/)
 
 - **Start now** uses the same heating time. **Extend 30 minutes** extends the current session, up to 4 hours total.
 - Optionally keep scheduled heating on for 30 minutes after departure. Heating stops above +10 °C.
@@ -65,6 +65,7 @@ Below zero, add 6 minutes per degree and round up to a whole minute. An optional
 
 - **Power sensor (optional).** Select the plug's sensor in W or kW to see live power and estimated kWh. Add a fixed price per kWh or a price sensor for estimated costs.
 - **Cable reminder.** If fresh power readings stay below 10 W for 5 minutes after switch-on, Home Assistant can notify you to check the cable. Both limits are adjustable. The check ends when power reaches the threshold. Mobile notifications are optional.
+- **Evening cable check (off by default).** In the car's settings, choose a power sensor and enable the check. Run it at 21:00 (adjustable) or press **Test heater cable** from the card or an automation. If tomorrow's first departure needs heating, the check switches the plug on and requests switch-off within 10 seconds. The check uses the hourly forecast if available, otherwise the outdoor sensor. Low power triggers one reminder per day. A missing or stale reading is inconclusive.
 - **History.** View start, stop and duration for the last 1,000 sessions per car. Energy totals by day, week and month use the local stop date. Missing readings or sessions spanning periods can leave totals incomplete.
 
 ## Before unattended use
@@ -73,6 +74,6 @@ Test start and stop with the car connected. Use equipment rated for the load and
 
 The car's status sensor contains departure details. Give it the same access permissions as the calendar.
 
-![Example car with heater controls, a power graph and a departure calendar.](docs/demo-card-en.png)
+![Example car with heater controls, a power graph and the previous evening’s cable check.](docs/demo-card-en.png)
 
 [MIT license](LICENSE)

@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 import math
 import types
 import unittest
+from unittest.mock import PropertyMock, patch
 
 import test_sensor_registry as registry_mocks
 
@@ -93,6 +94,40 @@ class SensorValuesTests(unittest.TestCase):
         self.assertFalse(self.metric("remaining_heating").available)
         self.controller.next_departure = datetime(2026, 11, 2, 10, 0)  # unknown zone
         self.assertFalse(self.metric("next_departure").available)
+
+    @mocks.sync_test
+    async def test_optional_cable_result_and_card_controls_are_scoped_to_the_car(self):
+        self.controller.config["cable_test_enabled"] = True
+        reported_result = self.enterContext(patch.object(
+            type(self.controller), "cable_test_result", new_callable=PropertyMock, create=True))
+        reported_at = self.enterContext(patch.object(
+            type(self.controller), "cable_test_at", new_callable=PropertyMock, create=True))
+        reported_result.return_value = None
+        reported_at.return_value = None
+        hass = types.SimpleNamespace(data={"motorvarmare": {"car1": self.controller}},
+                                     registry=registry_mocks.Registry())
+        hass.registry.mapping[("button", "motorvarmare", "car1_cable_test")] = "button.test_garage"
+        entities = []
+        await sensor.async_setup_entry(hass, self.entry, entities.extend)
+        result = next(e for e in entities if e._attr_unique_id == "car1_cable_test_result")
+        self.assertTrue(result.available)
+        self.assertIsNone(result.native_value)
+        self.assertEqual(result._attr_device_class, "enum")
+        status = entities[0]
+        status.hass = hass
+        self.controller.energy = None
+        for state in ("pending", "connected", "low_power", "inconclusive"):
+            self.assertIn(state, result._attr_options)
+            reported_result.return_value = state
+            reported_at.return_value = self.now
+            self.assertEqual(result.native_value, state)
+            self.assertEqual(result.extra_state_attributes["cable_test_at"], self.now)
+            attrs = status.extra_state_attributes
+            self.assertTrue(attrs["cable_test_enabled"])
+            self.assertEqual(attrs["cable_test_result"], state)
+            self.assertEqual(attrs["control_entities"]["cable_test"], "button.test_garage")
+        self.controller.config["cable_test_enabled"] = False
+        self.assertIsNone(status.extra_state_attributes["control_entities"]["cable_test"])
 
     def test_session_energy_not_zero_when_measurement_incomplete(self):
         metric = self.metric("session_energy")

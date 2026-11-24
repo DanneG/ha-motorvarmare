@@ -12,6 +12,8 @@
           "event_titles": "Exact event titles (optional)",
           "event_keywords": "Words or tags (optional)",
           "power_entity": "Power sensor (optional)",
+          "cable_test_mode": "Pre-departure cable test",
+          "cable_test_time": "Evening test time",
           "power_min_watts": "Low power threshold at startup",
           "power_delay_minutes": "Cable warning delay",
           "notify_entity": "Additional notification recipient (optional)",
@@ -29,6 +31,7 @@
           "power_deviation_delay_minutes": "Power deviation warning delay"
         },
         "data_description": {
+          "cable_test_mode": "If tomorrow’s departure needs heat, the outlet switches on briefly. Low power triggers a reminder to plug in the cable.",
           "event_titles": "Use the full title, such as EARLY SHIFT. Separate titles with commas or new lines.",
           "event_keywords": "Matches the title or description. Separate words, phrases and tags with commas or new lines. One title or keyword is enough, regardless of case.",
           "power_entity": "Select the plug’s power reading in W or kW for energy estimates and power warnings.",
@@ -47,6 +50,7 @@
       }
     },
     "error": {
+      "cable_test_needs_sensor": "Select a power sensor for the cable test.",
       "invalid_name": "Enter a car name.",
       "invalid_tag": "Enter a calendar tag.",
       "missing_calendar_rule": "Enter a title, word or tag for the calendar.",
@@ -70,6 +74,8 @@
           "event_titles": "Exact event titles (optional)",
           "event_keywords": "Words or tags (optional)",
           "power_entity": "Power sensor (optional)",
+          "cable_test_mode": "Pre-departure cable test",
+          "cable_test_time": "Evening test time",
           "power_min_watts": "Low power threshold at startup",
           "power_delay_minutes": "Cable warning delay",
           "notify_entity": "Additional notification recipient (optional)",
@@ -87,6 +93,7 @@
           "power_deviation_delay_minutes": "Power deviation warning delay"
         },
         "data_description": {
+          "cable_test_mode": "If tomorrow’s departure needs heat, the outlet switches on briefly. Low power triggers a reminder to plug in the cable.",
           "event_titles": "Use the full title, such as EARLY SHIFT. Separate titles with commas or new lines.",
           "event_keywords": "Matches the title or description. Separate words, phrases and tags with commas or new lines. One title or keyword is enough, regardless of case.",
           "power_entity": "Select the plug’s power reading in W or kW for energy estimates and power warnings.",
@@ -106,6 +113,7 @@
       }
     },
     "error": {
+      "cable_test_needs_sensor": "Select a power sensor for the cable test.",
       "invalid_name": "Enter a car name.",
       "invalid_tag": "Enter a calendar tag.",
       "missing_calendar_rule": "Enter a title, word or tag for the calendar.",
@@ -114,6 +122,15 @@
       "invalid_power_range": "Enter limits from 0 to 100,000 W. The minimum must be below the maximum.",
       "power_deviation_needs_sensor": "Select a power sensor for deviation warnings.",
       "power_deviation_needs_limit": "Set at least one limit for deviation warnings."
+    }
+  },
+  "selector": {
+    "cable_test_mode": {
+      "options": {
+        "off": "Off",
+        "routine": "Button or routine",
+        "evening": "Evening schedule, button or routine"
+      }
     }
   },
   "entity": {
@@ -131,6 +148,9 @@
       }
     },
     "button": {
+      "cable_test": {
+        "name": "Test heater cable"
+      },
       "clear_departure": {
         "name": "Clear manual departure"
       },
@@ -148,6 +168,15 @@
       }
     },
     "sensor": {
+      "cable_test_result": {
+        "name": "Cable test",
+        "state": {
+          "pending": "Testing",
+          "connected": "Load detected",
+          "low_power": "Low power",
+          "inconclusive": "Inconclusive"
+        }
+      },
       "status": {
         "name": "Status",
         "state": {

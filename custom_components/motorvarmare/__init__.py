@@ -6,7 +6,7 @@ import logging
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HassJob, HomeAssistant
 from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN
@@ -37,6 +37,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     controller = HeaterController(hass, entry)
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = controller
     await controller.async_load()
+    entry.async_on_unload(hass.async_add_shutdown_job(HassJob(controller.async_stop_cable_tests)))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     await controller.async_start()
     entry.async_on_unload(entry.add_update_listener(_async_reload))

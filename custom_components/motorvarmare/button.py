@@ -4,18 +4,37 @@ from homeassistant.components.button import ButtonEntity
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.device_registry import DeviceInfo
 
-from .const import DOMAIN
+from .const import DOMAIN, cable_test_configured
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
     controller = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([
+    entities = [
         ClearDepartureButton(controller, entry),
         StartNowButton(controller, entry),
         StopNowButton(controller, entry),
         Extend30Button(controller, entry),
         SkipNextButton(controller, entry),
-    ])
+    ]
+    if cable_test_configured(controller.config):
+        entities.append(CableTestButton(controller, entry))
+    async_add_entities(entities)
+
+
+class CableTestButton(ButtonEntity):
+    """Run the cable check from the device page or a bedtime routine."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "cable_test"
+    _attr_icon = "mdi:power-plug-outline"
+
+    def __init__(self, controller, entry):
+        self._controller = controller
+        self._attr_unique_id = f"{entry.entry_id}_cable_test"
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, entry.entry_id)}, name=entry.title)
+
+    async def async_press(self):
+        await self._controller.async_test_cable()
 
 
 class ClearDepartureButton(ButtonEntity):

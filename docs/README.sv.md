@@ -56,7 +56,7 @@ Ange när du ska åka. Motorvärmare räknar ut när varje bils värmare ska sta
 | −10 °C | 2 tim |
 | −20 °C eller kallare | 3 tim |
 
-Under noll tillkommer 6 minuter per minusgrad, avrundat uppåt till hela minuter. En valfri timprognos ger uppskattade starttider framåt. Brytaren styrs av uppmätt temperatur. [M Sverige / Calix](https://msverige.se/allt-om-bilen/service-och-underhall/motorvarmare/)
+Under noll tillkommer 6 minuter per minusgrad, avrundat uppåt till hela minuter. En valfri timprognos ger uppskattade starttider framåt. Schemalagd värmning styrs av uppmätt temperatur. [M Sverige / Calix](https://msverige.se/allt-om-bilen/service-och-underhall/motorvarmare/)
 
 - **Starta nu** använder samma värmetid. **Förläng 30 minuter** förlänger pågående värmning, upp till 4 timmar totalt.
 - Schemalagd värmning kan fortsätta 30 minuter efter avresa om du väljer det i inställningarna. Värmaren stannar över +10 °C.
@@ -65,6 +65,7 @@ Under noll tillkommer 6 minuter per minusgrad, avrundat uppåt till hela minuter
 
 - **Valfri effektsensor.** Välj pluggens sensor i W eller kW för att se aktuell effekt och beräknad energi i kWh. Lägg till fast pris per kWh eller en prissensor för att se uppskattad kostnad.
 - **Kabelpåminnelse.** Om nya effektvärden ligger under 10 W i 5 minuter efter start kan Home Assistant påminna dig att kontrollera kabeln. Du kan ändra gränsen och väntetiden. Kontrollen avslutas när effekten når gränsen. Mobilnotis är valfritt.
+- **Kvällens kabeltest (av från början).** Välj en effektsensor och aktivera testet i bilens inställningar. Kör kl. 21.00 (valbar tid) eller använd **Testa värmarkabeln** på kortet eller i en rutin. Om morgondagens första avresa behöver värmning slår testet på uttaget och skickar stoppkommandot inom 10 sekunder. Testet använder timprognosen om den finns, annars utegivaren. Låg effekt ger högst en påminnelse per dag. Saknas färska mätvärden visas **Kunde inte avgöras**.
 - **Historik.** Se start, stopp och gångtid för de senaste 1 000 körningarna per bil. Dags-, vecko- och månadssummor för energi räknas efter lokalt slutdatum. Mätluckor och värmningar över en periodgräns kan ge ofullständiga summor.
 
 ## Före obevakad användning
@@ -73,6 +74,6 @@ Prova start och stopp med bilen ansluten. Använd utrustning avsedd för belastn
 
 Bilens statussensor innehåller uppgifter om avresor. Ge den samma åtkomstskydd som kalendern.
 
-![Exempelbilens värmarreglage, effektkurva och avresekalender.](demo-card-sv.png)
+![Exempelbilens värmarreglage, effektkurva och resultat från gårdagens kabeltest.](demo-card-sv.png)
 
 [MIT-licens](../LICENSE)

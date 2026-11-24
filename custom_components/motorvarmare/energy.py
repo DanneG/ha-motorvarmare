@@ -289,9 +289,11 @@ class EnergyMonitor:
     power timer, rather than proving that the load has been low throughout.
     """
 
-    def __init__(self, hass, entry, config, notify, alerts_allowed=None, *, departure_identity=None):
+    def __init__(self, hass, entry, config, notify, alerts_allowed=None, *, departure_identity=None,
+                 cable_test_active=None):
         self.hass, self.entry, self.config, self._notify = hass, entry, config, notify
         self._departure_identity = departure_identity
+        self._cable_test_active = cable_test_active or (lambda: False)
         self._history_departure = None
         self._dirty = False
         self._urgent_save = False
@@ -718,6 +720,9 @@ class EnergyMonitor:
                 # not collapse into a single final state while tasks are queued.
                 switch_event = entity == self.config.get("switch_entity")
                 new_state = event.data.get("new_state")
+                switch = new_state if switch_event else self._state("switch_entity")
+                if self._ignore_cable_test(switch):
+                    return
                 if switch_event and (new_state is None or new_state.state != "on"):
                     self._deferred_low_deviation = False
                     self._power_epoch += 1
@@ -764,7 +769,11 @@ class EnergyMonitor:
         # Do not delay the heater scheduler on storage or notification I/O.
         initial = self._observation()
         initial.update(initial=True, departure_identity=self._current_departure(initial["switch"]))
-        self._queue_update(initial)
+        if not self._ignore_cable_test(initial["switch"]):
+            self._queue_update(initial)
+
+    def _ignore_cable_test(self, switch):
+        return self._cable_test_active() and (switch is None or switch.state != "off")
 
     def _queue_update(self, snapshot):
         task = self.hass.async_create_task(self._safe_update(snapshot))
@@ -903,6 +912,8 @@ class EnergyMonitor:
         observed_at = (snapshot or {}).get("observed_at") or dt_util.utcnow().isoformat()
         async with self._lock:
             if self._stopped and not force:
+                return
+            if snapshot is None and self._ignore_cable_test(self._state("switch_entity")):
                 return
             if self._alerts_allowed() and (self._deferred_low_epoch is not None or self._deferred_low_deviation):
                 await self._flush_deferred_startup_alerts_locked()

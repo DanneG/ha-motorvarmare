@@ -68,7 +68,9 @@ class ConfigFlowTests(unittest.TestCase):
         helpers.__path__ = []
         selector = make_module("homeassistant.helpers.selector", NumberSelector=Selector,
             NumberSelectorConfig=Selector, EntitySelector=Selector, EntitySelectorConfig=Selector,
-            TextSelector=Selector, TextSelectorConfig=Selector,
+            TextSelector=Selector, TextSelectorConfig=Selector, TimeSelector=Selector,
+            SelectSelector=Selector, SelectSelectorConfig=Selector,
+            SelectSelectorMode=types.SimpleNamespace(DROPDOWN="dropdown"),
             NumberSelectorMode=types.SimpleNamespace(BOX="box"))
         ha.config_entries = entries
         helpers.selector = selector
@@ -110,6 +112,27 @@ class ConfigFlowTests(unittest.TestCase):
                                  ({"post_departure_enabled": False}, False)]:
             fields = {key.key: key.kwargs for key in self.flow._schema(values).schema}
             self.assertIs(fields["post_departure_enabled"]["default"], expected)
+
+    def test_cable_test_is_opt_in_and_only_enabled_modes_require_a_power_sensor(self):
+        def defaults(values):
+            return {key.key: key.kwargs.get("default") for key in self.flow._schema(values).schema}
+
+        self.assertEqual(defaults({"power_entity": "sensor.plug"})["cable_test_mode"], "off")
+        self.assertEqual(defaults({})["cable_test_time"], "21:00:00")
+        for mode in ("off", "routine", "evening"):
+            with self.subTest(mode=mode):
+                data = {"name": "Bil", "switch_entity": "switch.car",
+                        "cable_test_mode": mode, "cable_test_time": "19:30:00"}
+                if mode != "off":
+                    self.assertEqual(self.flow._error(self.hass, data), "cable_test_needs_sensor")
+                    data["power_entity"] = "sensor.plug"
+                self.assertIsNone(self.flow._error(self.hass, data))
+                self.flow._normalize_optional_entities(data)
+                self.assertEqual(data["cable_test_enabled"], mode != "off")
+                self.assertEqual(data["cable_test_automatic"], mode == "evening")
+                self.assertNotIn("cable_test_mode", data)
+                self.assertEqual(defaults(data)["cable_test_mode"], mode)
+                self.assertEqual(defaults(data)["cable_test_time"], "19:30:00")
 
     def test_forecast_price_and_alert_settings_are_optional_and_clearable(self):
         fields = {key.key: key.kwargs for key in self.flow._schema({

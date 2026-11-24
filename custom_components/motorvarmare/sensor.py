@@ -14,7 +14,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN
+from .const import DOMAIN, cable_test_configured
 from .controller import duration_for_temperature
 
 _STATUS_KEYS = {
@@ -36,9 +36,12 @@ async def async_setup_entry(
 ) -> None:
     """Create a status sensor for one car."""
     controller = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([HeaterStatus(entry, controller)] + [
+    entities = [HeaterStatus(entry, controller)] + [
         HeaterMetric(entry, controller, key) for key in _METRIC_KEYS
-    ])
+    ]
+    if cable_test_configured(controller.config):
+        entities.append(HeaterMetric(entry, controller, "cable_test_result"))
+    async_add_entities(entities)
 
 
 def _number(value, *, positive=False):
@@ -158,7 +161,11 @@ class HeaterMetric(SensorEntity):
         self._attr_unique_id = f"{entry.entry_id}_{key}"
         self._attr_translation_key = key
         self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, entry.entry_id)}, name=entry.title)
-        if key in ("next_departure", "planned_start"):
+        if key == "cable_test_result":
+            self._attr_device_class = SensorDeviceClass.ENUM
+            self._attr_options = ["pending", "connected", "low_power", "inconclusive"]
+            self._attr_icon = "mdi:power-plug-outline"
+        elif key in ("next_departure", "planned_start"):
             self._attr_device_class = getattr(SensorDeviceClass, "TIMESTAMP", "timestamp")
             self._attr_icon = "mdi:calendar-clock"
         elif key == "remaining_heating":
@@ -195,6 +202,8 @@ class HeaterMetric(SensorEntity):
     @property
     def native_value(self):
         energy = getattr(self.controller, "energy", None)
+        if self.key == "cable_test_result":
+            return self.controller.cable_test_result
         if self.key == "next_departure":
             return _aware_datetime(getattr(self.controller, self.key, None))
         if self.key == "planned_start":
@@ -217,10 +226,12 @@ class HeaterMetric(SensorEntity):
     @property
     def available(self):
         """Unknown or incomplete data must not appear as a valid zero."""
-        return self.native_value is not None
+        return self.key == "cable_test_result" or self.native_value is not None
 
     @property
     def extra_state_attributes(self):
+        if self.key == "cable_test_result":
+            return {"cable_test_at": self.controller.cable_test_at}
         if self.key in ("energy_today", "energy_week", "energy_month"):
             item = self._period()
             if item:
@@ -269,6 +280,7 @@ class HeaterStatus(SensorEntity):
         """Expose the next decision and any problem."""
         controller = self.controller
         registry = er.async_get(self.hass)
+        cable_test = cable_test_configured(controller.config)
         energy = getattr(controller, "energy", None)
         estimate = _next_estimate(controller)
 
@@ -276,6 +288,9 @@ class HeaterStatus(SensorEntity):
             return registry.async_get_entity_id(domain, DOMAIN, f"{self._entry_id}_{suffix}")
 
         return {
+            "cable_test_enabled": cable_test,
+            "cable_test_result": controller.cable_test_result if cable_test else None,
+            "cable_test_at": controller.cable_test_at if cable_test else None,
             "next_departure": controller.next_departure,
             "planned_start": controller.planned_start,
             "temperature": controller.temperature,
@@ -334,6 +349,7 @@ class HeaterStatus(SensorEntity):
                 "manual_departure": entity_id("datetime", "manual_departure"),
                 "clear_departure": entity_id("button", "clear_departure"),
                 "start_now": entity_id("button", "start_now"),
+                "cable_test": entity_id("button", "cable_test") if cable_test else None,
                 "stop_now": entity_id("button", "stop_now"),
                 "extend_30": entity_id("button", "extend_30"),
                 "skip_next": entity_id("button", "skip_next"),

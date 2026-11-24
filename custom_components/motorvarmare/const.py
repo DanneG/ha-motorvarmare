@@ -8,6 +8,10 @@ CONF_TAG = "tag"
 CONF_EVENT_TITLES = "event_titles"
 CONF_EVENT_KEYWORDS = "event_keywords"
 CONF_POWER_ENTITY = "power_entity"
+CONF_CABLE_TEST_ENABLED = "cable_test_enabled"
+CONF_CABLE_TEST_AUTOMATIC = "cable_test_automatic"
+CONF_CABLE_TEST_TIME = "cable_test_time"
+DEFAULT_CABLE_TEST_TIME = "21:00:00"
 CONF_ENERGY_ENTITY = "energy_entity"
 CONF_POWER_MIN_WATTS = "power_min_watts"
 CONF_POWER_DELAY_MINUTES = "power_delay_minutes"
@@ -36,3 +40,8 @@ DEFAULT_TAG = "#motorvarmare"
 DEFAULT_DURATION_WARM = 30
 DEFAULT_DURATION_COOL = 60
 DEFAULT_DURATION_COLD = 90
+
+
+def cable_test_configured(config) -> bool:
+    """The cable test requires explicit opt-in and a power sensor."""
+    return bool(config.get(CONF_CABLE_TEST_ENABLED) and config.get(CONF_POWER_ENTITY))

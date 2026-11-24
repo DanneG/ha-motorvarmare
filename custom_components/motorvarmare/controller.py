@@ -18,9 +18,12 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
+from .cable_schedule import async_cable_test_departure, in_cable_test_window
+from .cable_test import CableTest
 from .const import (
     DOMAIN, CONF_SWITCH, CONF_TEMPERATURE, CONF_CALENDAR, CONF_TAG,
-    DEFAULT_TAG, CONF_POST_DEPARTURE_ENABLED,
+    DEFAULT_TAG, CONF_POST_DEPARTURE_ENABLED, CONF_CABLE_TEST_AUTOMATIC,
+    CONF_CABLE_TEST_TIME, DEFAULT_CABLE_TEST_TIME, cable_test_configured,
 )
 from .energy import EnergyMonitor
 from .recurrence import expand_series, next_occurrence, parse_rule
@@ -131,8 +134,10 @@ class HeaterController:
         self._alerts_after = None
         self._alert_grace_timer = None
         self._alerts_closed = False
+        self._cable = CableTest(self)
         self.energy = EnergyMonitor(hass, entry, self.config, self._notify, self._alerts_allowed,
-                                   departure_identity=self._active_local_departure_identity)
+                                   departure_identity=self._active_local_departure_identity,
+                                   cable_test_active=self._cable.measuring)
 
     def _alerts_allowed(self):
         return not self._alerts_closed and (self._alerts_after is None or _alert_clock() >= self._alerts_after)
@@ -166,6 +171,7 @@ class HeaterController:
 
     async def async_load(self):
         data = await self.store.async_load() or {}
+        self._cable.restore(data.get("cable_test"))
         try:
             await self.energy.async_load()
         except Exception:
@@ -255,6 +261,7 @@ class HeaterController:
         def iso(value):
             return value.isoformat() if value else None
         await self.store.async_save({
+            "cable_test": self._cable.snapshot(),
             "manual_departure": iso(self.manual_departure),
             "local_departures": [{"uid": item["uid"], "departure": iso(item["departure"]),
                                   "summary": item.get("summary", "Avresa")}
@@ -567,13 +574,68 @@ class HeaterController:
             return None
         return departure + timedelta(minutes=self.post_departure_minutes if source != "Starta nu" else 0)
 
+    @property
+    def cable_test_result(self):
+        return self._cable.result
+
+    @property
+    def cable_test_at(self):
+        return self._cable.at
+
+    def _cable_test_due(self, now, automatic):
+        if (not cable_test_configured(self.config) or self._alerts_after is None or not self._alerts_allowed()
+                or self._cable.switch or self._cable.closing or self.owned or self.automation_paused or self._resume_departure
+                or self._stop_requested or self._uncertain_start_until):
+            return False
+        local = dt_util.as_local(now)
+        if self._cable.at:
+            if now - self._cable.at < timedelta(minutes=1):
+                return False
+            if automatic and dt_util.as_local(self._cable.at).date() == local.date():
+                return False
+        if automatic and (not self.config.get(CONF_CABLE_TEST_AUTOMATIC, True)
+                          or not in_cable_test_window(local, self.config.get(CONF_CABLE_TEST_TIME, DEFAULT_CABLE_TEST_TIME))):
+            return False
+        switch = self.hass.states.get(self.config[CONF_SWITCH])
+        return switch is not None and switch.state == STATE_OFF
+
+    async def _maybe_test_cable(self, automatic):
+        now = dt_util.utcnow()
+        if not self._cable_test_due(now, automatic):
+            return
+        if not automatic:
+            await self._read_calendar(now)
+        if not await async_cable_test_departure(self, dt_util.utcnow(), duration_for_temperature):
+            return
+        now = dt_util.utcnow()
+        if self._cable_test_due(now, automatic):
+            await self._cable.run(now)
+
+    async def async_test_cable(self):
+        """Perform the optional check for tomorrow as part of a routine."""
+        requested_at = dt_util.utcnow()
+        if self._cable.switch:
+            return
+        async with self._live_control():
+            if self._cable.at and requested_at - self._cable.at < timedelta(minutes=1):
+                return
+            await self._maybe_test_cable(automatic=False)
+            await self._cable.notify_if_due()
+
+    async def async_stop_cable_tests(self):
+        """Quiesce the test before Home Assistant stops the plug integration."""
+        self._cable.closing = True
+        if self._cable.switch:
+            async with self._lock:
+                await self._cable.stop()
+
     async def async_start_now(self):
         """Start one bounded session and persist ownership before the command."""
         async with self._live_control():
             state = self.hass.states.get(self.config[CONF_SWITCH])
             if not state or state.state not in (STATE_ON, STATE_OFF):
                 raise ValueError("switch_unavailable")
-            if state.state == STATE_ON or self.owned:
+            if state.state == STATE_ON or self.owned or self._cable.switch:
                 raise ValueError("already_on")
             temperature = self._temperature()
             if temperature is None:
@@ -695,6 +757,8 @@ class HeaterController:
         async with self._lock:
             if self._closed:
                 return True
+            if not await self._cable.stop():
+                return False
             self._alerts_closed = True
             now = dt_util.utcnow()
             if (self.owned and not self._stop_requested and not self._temperature_blocked
@@ -1116,6 +1180,8 @@ class HeaterController:
                 return
             try:
                 await self._update_locked()
+                await self._maybe_test_cable(automatic=True)
+                await self._cable.notify_if_due()
                 if self._stop_state_dirty:
                     await self._save_stop_state()
             except Exception:
@@ -1208,6 +1274,8 @@ class HeaterController:
     async def _update_locked(self):
         now = dt_util.utcnow()
         self.error = None
+        if not await self._cable.stop():
+            return
         if self.owned and self._stop_requested:
             if not await self._turn_off():
                 self.status, self.error = "Fel", "Kunde inte bekräfta att brytaren är av; försöker igen"

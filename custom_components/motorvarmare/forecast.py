@@ -1,4 +1,4 @@
-"""Forecast-only estimates for calendar display; never controls the heater."""
+"""Hourly temperatures for calendar estimates and optional evening cable checks."""
 from __future__ import annotations
 
 import asyncio
@@ -58,6 +58,41 @@ def _nearest(points, departure):
     return value if abs(when - departure) <= _MAX_FORECAST_DISTANCE else None
 
 
+async def _async_hourly_points(hass, weather_entity):
+    state = hass.states.get(weather_entity) if weather_entity else None
+    if not state or state.state in ("unknown", "unavailable"):
+        return []
+    unit = state.attributes.get("temperature_unit")
+    if unit not in ("°C", "°F"):
+        return []
+    data = getattr(hass, "data", None)
+    cache = data.setdefault("motorvarmare_forecast_cache", {}) if isinstance(data, dict) else None
+    cache_key = (weather_entity, unit)
+    cached = cache.get(cache_key) if cache is not None else None
+    if cached and monotonic_time.monotonic() - cached[0] < _CACHE_SECONDS:
+        return cached[1]
+    try:
+        response = await asyncio.wait_for(hass.services.async_call(
+            "weather", "get_forecasts", {"entity_id": weather_entity, "type": "hourly"},
+            blocking=True, return_response=True), timeout=10)
+        points = _forecast_points(response, weather_entity, unit)
+        if cache is not None:
+            if points:
+                cache[cache_key] = (monotonic_time.monotonic(), points)
+            else:
+                cache.pop(cache_key, None)
+        return points
+    except Exception:
+        _LOGGER.debug("Hourly weather forecast unavailable; using current temperature", exc_info=True)
+        return []
+
+
+async def async_forecast_temperature(hass, weather_entity, departure):
+    """Look up the temperature at one departure using the car's configured weather entity."""
+    points = await _async_hourly_points(hass, weather_entity)
+    return _nearest(points, departure)
+
+
 async def async_project_forecasts(hass, weather_entity, result, duration_for_temperature, *, blocked=False, now=None, end=None):
     """Return forecast estimates and trim boundary events; leave the scheduler untouched.
 
@@ -67,31 +102,7 @@ async def async_project_forecasts(hass, weather_entity, result, duration_for_tem
     """
     now = _datetime(now) if now is not None else datetime.now(timezone.utc)
     end = _datetime(end) if end is not None else None
-    points = []
-    if weather_entity:
-        state = hass.states.get(weather_entity)
-        if state and state.state not in ("unknown", "unavailable"):
-            unit = state.attributes.get("temperature_unit")
-            if unit in ("°C", "°F"):
-                data = getattr(hass, "data", None)
-                cache = data.setdefault("motorvarmare_forecast_cache", {}) if isinstance(data, dict) else None
-                cache_key = (weather_entity, unit)
-                cached = cache.get(cache_key) if cache is not None else None
-                try:
-                    if cached and monotonic_time.monotonic() - cached[0] < _CACHE_SECONDS:
-                        points = cached[1]
-                    else:
-                        response = await asyncio.wait_for(hass.services.async_call(
-                            "weather", "get_forecasts", {"entity_id": weather_entity, "type": "hourly"},
-                            blocking=True, return_response=True), timeout=10)
-                        points = _forecast_points(response, weather_entity, unit)
-                        if cache is not None:
-                            if points:
-                                cache[cache_key] = (monotonic_time.monotonic(), points)
-                            else:
-                                cache.pop(cache_key, None)
-                except Exception:
-                    _LOGGER.debug("Hourly weather forecast unavailable; using current temperature", exc_info=True)
+    points = await _async_hourly_points(hass, weather_entity)
     events = []
     for original in result.get("events", []):
         event = dict(original)

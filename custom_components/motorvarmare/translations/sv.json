@@ -12,6 +12,8 @@
           "event_titles": "Exakta händelsetitlar (valfritt)",
           "event_keywords": "Ord eller taggar (valfritt)",
           "power_entity": "Effektsensor (valfritt)",
+          "cable_test_mode": "Kabeltest inför avresa",
+          "cable_test_time": "Tid för kvällstest",
           "power_min_watts": "Gräns för låg effekt vid start",
           "power_delay_minutes": "Väntetid för kabelvarning",
           "notify_entity": "Extra notismottagare (valfritt)",
@@ -29,6 +31,7 @@
           "power_deviation_delay_minutes": "Väntetid vid avvikande effekt"
         },
         "data_description": {
+          "cable_test_mode": "Om morgondagens avresa behöver värme slås uttaget på kort. Låg effekt ger en påminnelse att ansluta kabeln.",
           "event_titles": "Hela titeln, till exempel TILL JOBBET. Skilj flera titlar med komma eller radbrytning.",
           "event_keywords": "Sök i titel och beskrivning. Skilj ord, fraser och taggar med komma eller radbrytning. En titel eller ett sökord räcker, oavsett skiftläge.",
           "power_entity": "Välj uttagets effekt i W eller kW för energiuppskattning och effektlarm.",
@@ -47,6 +50,7 @@
       }
     },
     "error": {
+      "cable_test_needs_sensor": "Välj en effektsensor för kabeltestet.",
       "invalid_name": "Ange ett namn för bilen.",
       "invalid_tag": "Ange en kalendertagg.",
       "missing_calendar_rule": "Ange en titel, ett ord eller en tagg för kalendern.",
@@ -70,6 +74,8 @@
           "event_titles": "Exakta händelsetitlar (valfritt)",
           "event_keywords": "Ord eller taggar (valfritt)",
           "power_entity": "Effektsensor (valfritt)",
+          "cable_test_mode": "Kabeltest inför avresa",
+          "cable_test_time": "Tid för kvällstest",
           "power_min_watts": "Gräns för låg effekt vid start",
           "power_delay_minutes": "Väntetid för kabelvarning",
           "notify_entity": "Extra notismottagare (valfritt)",
@@ -87,6 +93,7 @@
           "power_deviation_delay_minutes": "Väntetid vid avvikande effekt"
         },
         "data_description": {
+          "cable_test_mode": "Om morgondagens avresa behöver värme slås uttaget på kort. Låg effekt ger en påminnelse att ansluta kabeln.",
           "event_titles": "Hela titeln, till exempel TILL JOBBET. Skilj flera titlar med komma eller radbrytning.",
           "event_keywords": "Sök i titel och beskrivning. Skilj ord, fraser och taggar med komma eller radbrytning. En titel eller ett sökord räcker, oavsett skiftläge.",
           "power_entity": "Välj uttagets effekt i W eller kW för energiuppskattning och effektlarm.",
@@ -106,6 +113,7 @@
       }
     },
     "error": {
+      "cable_test_needs_sensor": "Välj en effektsensor för kabeltestet.",
       "invalid_name": "Ange ett namn för bilen.",
       "invalid_tag": "Ange en kalendertagg.",
       "missing_calendar_rule": "Ange en titel, ett ord eller en tagg för kalendern.",
@@ -114,6 +122,15 @@
       "invalid_power_range": "Ange 0–100 000 W. Miniminivån måste vara lägre än maxnivån.",
       "power_deviation_needs_sensor": "Välj en effektsensor för avvikelselarmet.",
       "power_deviation_needs_limit": "Ange minst en effektgräns för avvikelselarmet."
+    }
+  },
+  "selector": {
+    "cable_test_mode": {
+      "options": {
+        "off": "Av",
+        "routine": "Knapp eller rutin",
+        "evening": "Kvällstid, knapp eller rutin"
+      }
     }
   },
   "entity": {
@@ -131,6 +148,9 @@
       }
     },
     "button": {
+      "cable_test": {
+        "name": "Testa värmarkabeln"
+      },
       "clear_departure": {
         "name": "Rensa manuell avresa"
       },
@@ -148,6 +168,15 @@
       }
     },
     "sensor": {
+      "cable_test_result": {
+        "name": "Kabeltest",
+        "state": {
+          "pending": "Testar",
+          "connected": "Effekt uppmätt",
+          "low_power": "Låg effekt",
+          "inconclusive": "Kunde inte avgöras"
+        }
+      },
       "status": {
         "name": "Status",
         "state": {

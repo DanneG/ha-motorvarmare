@@ -11,6 +11,8 @@ MV_I18N.sv.missing = "saknas"; MV_I18N.en.missing = "missing";
 MV_I18N.sv.from = "Källa:"; MV_I18N.en.from = "Source:";
 MV_I18N.sv.heaterControl = "Styr värmaren"; MV_I18N.en.heaterControl = "Heater control";
 Object.assign(MV_I18N.sv,{activeHeating:"Pågående värmning",activeStart:"Start",activeNow:"Nu",activeStop:"Planerat stopp",activeRemaining:"kvar",activeFinished:"Stopptiden har passerat",activeProgressUnavailable:"Värmningens start- eller stopptid saknas.",extend30:"Förläng 30 min",extendLimit:"Fyratimmarsgränsen är nådd.",activeEnergy:"Energi hittills",activeCost:"Kostnad hittills",powerGraph:"Effekt över tid",powerGraphShow:"Visa effektgraf",powerGraphHide:"Dölj effektgraf",powerGraphEmpty:"Väntar på effektvärden.",powerGraphMissing:"Välj en effektsensor i integrationens inställningar.",powerGraphUnit:"Effekt i watt",powerGraphGap:"Mätvärden saknas där kurvan bryts.",activeCostEstimate:"Uppskattad kostnad"});
+Object.assign(MV_I18N.sv,{cableTitle:"Kabeltest inför avresa",cableButton:"Testa värmarkabeln",cableConnected:"Effekt uppmätt",cableLow:"Låg effekt – kontrollera kabeln",cableUnknown:"Kunde inte avgöras",cablePending:"Kabeltest pågår",cableUntested:"Inget test ännu",cableCondition:"Testar bara inför en avresa i morgon som behöver värmning."});
+Object.assign(MV_I18N.en,{cableTitle:"Pre-departure cable check",cableButton:"Test heater cable",cableConnected:"Power detected",cableLow:"Low power – check the cable",cableUnknown:"Inconclusive",cablePending:"Testing the cable",cableUntested:"No check yet",cableCondition:"Runs when tomorrow’s departure needs heating."});
 Object.assign(MV_I18N.en,{activeHeating:"Heating in progress",activeStart:"Start",activeNow:"Now",activeStop:"Planned stop",activeRemaining:"remaining",activeFinished:"The planned stop has passed",activeProgressUnavailable:"Heating start or stop time unavailable.",extend30:"Extend 30 min",extendLimit:"Four-hour limit reached.",activeEnergy:"Energy so far",activeCost:"Cost so far",powerGraph:"Power over time",powerGraphShow:"Show power graph",powerGraphHide:"Hide power graph",powerGraphEmpty:"Waiting for power readings.",powerGraphMissing:"Select a power sensor in the integration settings.",powerGraphUnit:"Power in watts",powerGraphGap:"Gaps indicate missing measurements.",activeCostEstimate:"Estimated cost"});
 MV_I18N.sv.extendMax="Förläng till max"; MV_I18N.en.extendMax="Extend to maximum";
 MV_I18N.sv.maximumStop="Fyratimmarsgräns – senast"; MV_I18N.en.maximumStop="Four-hour limit – latest stop";
@@ -336,6 +338,14 @@ class MotorvarmareCard extends HTMLElement {
     if (!focused || !["INPUT", "SELECT"].includes(focused.tagName)) this._render();
     else this._refreshAfterFocus = true;
   }
+  _cableSection(attributes, button, disabled) {
+    if (!attributes.cable_test_enabled) return "";
+    const t = key => mvText(this._hass, key);
+    const result = {connected:"cableConnected", low_power:"cableLow", inconclusive:"cableUnknown", pending:"cablePending"};
+    const key = Object.hasOwn(result, attributes.cable_test_result) ? result[attributes.cable_test_result] : "cableUntested";
+    const at = key !== "cablePending" && attributes.cable_test_at ? this._date(attributes.cable_test_at) : "";
+    return `<section class="section cable-check"><div class="sectionhead">${t("cableTitle")}</div><div role="status">${t(key)}${at ? ` · ${mvEscape(at)}` : ""}</div><div class="hint">${t("cableCondition")}</div><button id="cable-test" ${disabled || !button || button.state === "unavailable" ? "disabled" : ""}>${t("cableButton")}</button></section>`;
+  }
   _entities() {
     const auto = this._hass?.states?.[this._config.status_entity]?.attributes?.control_entities || {};
     return {
@@ -344,6 +354,7 @@ class MotorvarmareCard extends HTMLElement {
       switch_entity:auto.heater_switch,
       calendar:auto.calendar,
       start_now:auto.start_now,
+      cable_test:auto.cable_test,
       stop_now:auto.stop_now,
       extend_30:auto.extend_30,
       skip_next:auto.skip_next,
@@ -677,8 +688,12 @@ class MotorvarmareCard extends HTMLElement {
     }
     const e = this._entities(), a = status.attributes || {}, manual = h.states[e.manual_entity];
     const sw = h.states[e.switch_entity];
+    const cablePending = a.cable_test_result === "pending";
+    const cableRetryAt = a.cable_test_enabled && a.cable_test_at ? Date.parse(a.cable_test_at) + 60000 : 0;
+    const cableDisabled = this._pending || cableRetryAt > Date.now() || cablePending || a.owned || a.automation_paused || sw?.state !== "off" || !mvUsable(status);
     let statusText = mvUsable(status) ? mvStateText(h,status.state) : t("noStatus");
     if (!mvUsable(status) || status.state === "error" || a.error) { /* Keep unavailable status and faults prominent. */ }
+    else if (cablePending) statusText=t("cablePending");
     else if (a.automation_paused) statusText=t("paused");
     else if (a.owned && a.active_until) statusText=status.state === "heating" ? `${t("heatingUntil")} ${this._date(a.active_until)}` : `${statusText} · ${t("heatingUntil")} ${this._date(a.active_until)}`;
     else if (a.temperature > 10) statusText=t("overTen");
@@ -799,7 +814,7 @@ class MotorvarmareCard extends HTMLElement {
     this._nextCalendarTransition=schedule.reduce((next,item)=>{
       for (const boundary of [new Date(item.departure).getTime(),effectiveEnd(item)]) if (boundary > now && boundary < next) next=boundary;
       return next;
-    },Infinity);
+    },cableRetryAt > now ? cableRetryAt : Infinity);
     const temperatureDetail = item => item.temperature_source === "forecast" ? ` · ${t("forecast")}${Number.isFinite(item.forecast_temperature) ? ` ${new Intl.NumberFormat(metricLocale,{maximumFractionDigits:1}).format(item.forecast_temperature)} °C` : ""}` : a.weather_enabled && item.temperature_source === "current" ? ` · ${t("currentTemperature")}` : "";
     const hasExtendedStop = item => new Date(stopTime(item)).getTime() > new Date(item.departure).getTime();
     // A repeated local hour can make consecutive instants look reversed even
@@ -1154,6 +1169,7 @@ class MotorvarmareCard extends HTMLElement {
         .main-tabs{margin-top:20px;padding:5px;border:1px solid var(--divider-color);border-bottom:0;border-radius:14px 14px 0 0}
         .main-panel:not([hidden]){min-width:0;padding:16px;border:1px solid var(--divider-color);border-radius:0 0 14px 14px;background:var(--card-background-color)}
         .main-panel .calendar,.main-panel .calendar-placeholder,.main-panel .section,.main-panel .period-summary{margin-top:0}
+        .cable-check { display:grid; gap:6px; justify-items:start; }
         .main-panel[data-main-panel="settings"] .section + .section,
         .main-panel[data-main-panel="energy"] .energy-overview ~ .section,
         .main-panel[data-main-panel="energy"] .period-summary{margin-top:16px;padding-top:16px;border-top:1px solid var(--divider-color)}
@@ -1223,13 +1239,14 @@ class MotorvarmareCard extends HTMLElement {
         ${mvUsable(status) && a.error ? `<div class="notice" role="status">${mvEscape(mvErrorText(h,a.error))}</div>` : ""}
         ${mvUsable(status) && Array.isArray(a.operational_problems) ? a.operational_problems.filter(problem=>Object.prototype.hasOwnProperty.call(MV_I18N[mvLang(h)],problem)).map(problem=>`<div class="notice operational-problem" role="status">${mvEscape(t(problem))}</div>`).join("") : ""}
         ${this._actionError ? `<div class="notice" role="alert">${mvEscape(this._actionError)}</div>` : ""}
-        <section class="control-panel" aria-label="${t("heaterControl")}">${active ? activeControl : `<div class="sectionhead">${t("heaterControl")}</div><div class="quick-actions">${mvUsable(status) && a.owned ? `<button id="stop-now" ${!stopOk || this._pending ? "disabled" : ""}>${t("stopNow")}</button><span class="hint">${a.active_until ? `${t("plannedStop")} ${mvEscape(this._date(a.active_until))}` : t("owned")}</span>` : `<button class="primary" id="start-now" ${!startOk || this._pending ? "disabled" : ""}>${t("runNow")}</button><span class="hint">${!mvUsable(status) ? t("noStatus") : sw?.state === "on" ? t("external") : sw?.state !== "off" ? t("unknownSwitch") : currentRuntime === null ? t("tempUnavailable") : currentRuntime <= 0 ? t("noRuntime") : `${t("autoStopAfter")} ${mvDuration(h,currentRuntime)}`}</span>`}</div>`}
+        <section class="control-panel" aria-label="${t("heaterControl")}">${active ? activeControl : `<div class="sectionhead">${t("heaterControl")}</div><div class="quick-actions">${mvUsable(status) && a.owned ? `<button id="stop-now" ${!stopOk || this._pending ? "disabled" : ""}>${t("stopNow")}</button><span class="hint">${a.active_until ? `${t("plannedStop")} ${mvEscape(this._date(a.active_until))}` : t("owned")}</span>` : `<button class="primary" id="start-now" ${!startOk || cablePending || this._pending ? "disabled" : ""}>${t("runNow")}</button><span class="hint">${!mvUsable(status) ? t("noStatus") : cablePending ? t("cablePending") : sw?.state === "on" ? t("external") : sw?.state !== "off" ? t("unknownSwitch") : currentRuntime === null ? t("tempUnavailable") : currentRuntime <= 0 ? t("noRuntime") : `${t("autoStopAfter")} ${mvDuration(h,currentRuntime)}`}</span>`}</div>`}
         ${mvUsable(status) && (skipButton || pauseSwitch) ? `<div class="secondary-actions"><button id="more-actions" aria-expanded="${this._showMoreActions}">${this._showMoreActions ? t("lessActions") : t("moreActions")} <span aria-hidden="true">${this._showMoreActions ? "⌃" : "⌄"}</span></button>${a.automation_paused && pauseSwitch ? `<button id="pause-automation" class="resume-action" ${this._pending || pauseSwitch.state === "unavailable" ? "disabled" : ""}>${t("resume")}</button>` : ""}</div>${this._showMoreActions ? `<div class="quick-actions schedule-actions">${skipButton ? `<button id="skip-next" ${!a.next_departure || this._pending || skipButton.state === "unavailable" ? "disabled" : ""}>${t("skipNext")}</button>` : ""}${pauseSwitch && !a.automation_paused ? `<button id="pause-automation" ${this._pending || pauseSwitch.state === "unavailable" ? "disabled" : ""}>${t("pause")}</button>${pauseDate ? `<button id="show-pause-date">${t("pauseUntil")}</button>` : ""}` : ""}</div>${this._showPauseDate && pauseDate && !a.automation_paused ? `<div class="quick-actions pause-editor"><label for="pause-until">${t("pauseUntil")}</label><input id="pause-until" type="datetime-local" value="${mvEscape(this._pauseDraft ?? this._inputDate(pauseDate.state))}"><button id="save-pause">${t("savePause")}</button></div>` : ""}` : ""}${a.automation_paused && a.pause_until ? `<div class="hint">${t("pauseUntil")} ${mvEscape(this._date(a.pause_until))}</div>` : ""}` : ""}
         </section>
         ${active ? departureSummary : ""}
         <div class="main-tabs" role="group" aria-label="${t("viewNavigation")}">${[["calendar","calendarTab"],["energy","energyTab"],["settings","settingsTab"]].map(([key,label])=>`<button data-main-tab="${key}" aria-pressed="${this._activeView===key}">${t(label)}</button>`).join("")}</div>
         <div class="main-panel" data-main-panel="calendar" ${this._activeView!=="calendar" ? "hidden" : ""}>${compactCalendar}</div>
         <div class="main-panel" data-main-panel="settings" ${this._activeView!=="settings" ? "hidden" : ""}>
+        ${this._cableSection(a, h.states[e.cable_test], cableDisabled)}
         <div class="section"><div class="sectionhead">${t("single")}</div><div class="manual"><div class="field"><label for="manual">${t("dateTime")}</label><input id="manual" type="datetime-local" value="${mvEscape(inputValue)}" ${!manualOk || this._pending ? "disabled" : ""}></div><div class="actions"><button class="primary" id="save" ${!manualOk || this._pending ? "disabled" : ""}>${t("save")}</button><button id="clear" ${!clearOk || this._pending ? "disabled" : ""}>${t("clear")}</button></div></div></div>
         <div class="section"><button class="expand" id="week" aria-expanded="${this._showWeek}"><span>${t("weekly")}</span><span class="small">${this._showWeek ? t("hide") : t("show")}</span></button>${this._showWeek ? weekRows : ""}</div>
         ${(!e.manual_entity || !e.weekly.some(x=>x.time && x.enabled)) ? `<div class="hint">${t("missingEntities")}</div>` : ""}
@@ -1286,6 +1303,7 @@ class MotorvarmareCard extends HTMLElement {
       if (await this._call("datetime", "set_value", {entity_id:e.manual_entity, datetime:value.length === 16 ? `${value}:00` : value})) {this._draft = null; this._render();}
     }, {signal:renderSignal});
     this.shadowRoot.querySelector("#clear")?.addEventListener("click", async () => {if (await this._call("button", "press", {entity_id:e.clear_entity})) {this._draft = null; this._render();}}, {signal:renderSignal});
+    this.shadowRoot.querySelector("#cable-test")?.addEventListener("click", () => this._call("button", "press", {entity_id:e.cable_test}), {signal:renderSignal});
     this.shadowRoot.querySelector("#start-now")?.addEventListener("click", () => this._call("button", "press", {entity_id:e.start_now}), {signal:renderSignal});
     this.shadowRoot.querySelector("#stop-now")?.addEventListener("click", () => this._call("button", "press", {entity_id:e.stop_now}), {signal:renderSignal});
     this.shadowRoot.querySelector("#extend-30")?.addEventListener("click", () => this._call("button", "press", {entity_id:e.extend_30}), {signal:renderSignal});

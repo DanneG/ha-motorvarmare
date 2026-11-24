@@ -13,6 +13,10 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .const import (
+    CONF_CABLE_TEST_AUTOMATIC,
+    CONF_CABLE_TEST_ENABLED,
+    CONF_CABLE_TEST_TIME,
+    DEFAULT_CABLE_TEST_TIME,
     CONF_CALENDAR,
     CONF_EVENT_KEYWORDS,
     CONF_EVENT_TITLES,
@@ -43,6 +47,8 @@ from .const import (
     CONF_TEMPERATURE,
     DOMAIN,
 )
+
+_TEST_MODE = "cable_test_mode"
 
 
 def _schema(values: dict[str, Any] | None = None) -> vol.Schema:
@@ -78,6 +84,9 @@ def _schema(values: dict[str, Any] | None = None) -> vol.Schema:
                 if value is not None else vol.Optional(key))
 
     multiline = selector.TextSelector(selector.TextSelectorConfig(multiline=True))
+    test_mode = "off"
+    if values.get(CONF_CABLE_TEST_ENABLED):
+        test_mode = "evening" if values.get(CONF_CABLE_TEST_AUTOMATIC, True) else "routine"
     return vol.Schema(
         {
             vol.Required(CONF_NAME, default=values.get(CONF_NAME, "")): str,
@@ -97,6 +106,13 @@ def _schema(values: dict[str, Any] | None = None) -> vol.Schema:
             optional_entity(CONF_POWER_ENTITY): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
+            vol.Required(_TEST_MODE, default=values.get(_TEST_MODE, test_mode)):
+                selector.SelectSelector(selector.SelectSelectorConfig(
+                    options=["off", "routine", "evening"], translation_key=_TEST_MODE,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )),
+            vol.Required(CONF_CABLE_TEST_TIME, default=values.get(CONF_CABLE_TEST_TIME, DEFAULT_CABLE_TEST_TIME)):
+                selector.TimeSelector(),
             optional_entity(CONF_ENERGY_PRICE_ENTITY): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
@@ -156,6 +172,8 @@ def _error(
     if not re.fullmatch(r"[A-Z]{3}", currency):
         return "invalid_currency"
     user_input[CONF_ENERGY_CURRENCY] = currency
+    if user_input.get(_TEST_MODE, "off") != "off" and not user_input.get(CONF_POWER_ENTITY):
+        return "cable_test_needs_sensor"
     if user_input.get(CONF_CALENDAR) and not any(
         user_input[key].replace(",", "").strip()
         for key in (CONF_EVENT_TITLES, CONF_EVENT_KEYWORDS)
@@ -193,6 +211,9 @@ def _error(
 
 def _normalize_optional_entities(user_input: dict[str, Any]) -> None:
     """Store cleared values explicitly, so old entry data cannot reappear."""
+    mode = user_input.pop(_TEST_MODE, "off")
+    user_input[CONF_CABLE_TEST_ENABLED] = mode != "off"
+    user_input[CONF_CABLE_TEST_AUTOMATIC] = mode == "evening"
     for key in (CONF_CALENDAR, CONF_POWER_ENTITY, CONF_ENERGY_ENTITY, CONF_NOTIFY_ENTITY, CONF_WEATHER_ENTITY, CONF_ENERGY_PRICE_ENTITY):
         user_input[key] = user_input.get(key) or ""
     # An explicit None removes a price inherited from the original entry data.

@@ -81,6 +81,34 @@ async function main(){
     await page.evaluate(()=>{window.hass.states['sensor.status'].attributes.weather_enabled=false;document.querySelector('motorvarmare-card').hass={...window.hass};window.pendingForecast.pop()({events:[{departure:'2026-11-05T12:00:00Z',start:'2026-11-05T09:30:00Z',source:'Kalender',temperature_source:'forecast'}]});});
     await page.waitForTimeout(10);
     assert.equal(await todayEvent.count(),0,'A late forecast response must not resurrect a disabled forecast');
+    await card.locator('[data-main-tab="settings"]').click();
+    assert.equal(await card.locator('#cable-test').count(), 0, 'Cable check is opt-in');
+    await page.evaluate(() => {
+      const status = window.hass.states['sensor.status'].attributes;
+      Object.assign(status, {cable_test_enabled:true, cable_test_result:'low_power', cable_test_at:'2026-11-04T20:00:00Z', automation_paused:false});
+      status.control_entities.cable_test = 'button.garage_cable';
+      window.hass.states['button.garage_cable'] = {state:'unknown', attributes:{}};
+      document.querySelector('motorvarmare-card').hass = {...window.hass};
+    });
+    assert.match(await card.locator('.cable-check [role="status"]').innerText(), /Låg effekt.*21:00/);
+    await card.locator('#cable-test').click();
+    assert.deepEqual(await page.evaluate(() => window.calls.splice(0)), [{domain:'button',service:'press',data:{entity_id:'button.garage_cable'}}]);
+    await page.evaluate(() => {
+      window.hass.states['sensor.status'].attributes.cable_test_result = 'pending';
+      window.hass.states['switch.heater'].state = 'on';
+      document.querySelector('motorvarmare-card').hass = {...window.hass, language:'en', locale:{language:'en'}};
+    });
+    assert.match(await card.locator('.status').innerText(), /Testing the cable/);
+    assert.equal(await card.locator('#cable-test').isDisabled(), true);
+    assert.equal(await card.locator('#start-now').isDisabled(), true);
+    await page.evaluate(() => {
+      const status = window.hass.states['sensor.status'].attributes;
+      Object.assign(status, {cable_test_result:'inconclusive', cable_test_at:new Date().toISOString()});
+      window.hass.states['switch.heater'].state = 'off';
+      document.querySelector('motorvarmare-card').hass = {...window.hass};
+    });
+    assert.equal(await card.locator('#cable-test').isDisabled(), true, 'Allow the plug to settle before a retry');
+    assert.match(await card.locator('.cable-check [role="status"]').innerText(), /Kunde inte avgöras/);
     assert.deepEqual(errors,[]);
     console.log('PASS: forecast, cost, tabs, unsaved drafts, skip, pause and mobile scroll');
   }finally{await browser.close();}
