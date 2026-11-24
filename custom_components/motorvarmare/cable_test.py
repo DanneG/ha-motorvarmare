@@ -33,7 +33,8 @@ class CableTest:
         self.closing = False
         self._armed = False
         self._outcome = "inconclusive"
-        self._reminded_on = None
+        self._delivered = {}
+        self._retry_notifications_after = None
         self._notice_open = False
         self._uncertain_until = None
         self._retry_timer = None
@@ -43,7 +44,10 @@ class CableTest:
             return
         self.at = self.controller._parse(data.get("at"))
         self.result = data.get("result")
-        self._reminded_on = data.get("reminded_on")
+        delivered = data.get("delivered")
+        if isinstance(delivered, dict):
+            self._delivered = {key: day for key, day in delivered.items() if isinstance(day, str)}
+        self._retry_notifications_after = self.controller._parse(data.get("retry_notifications_after"))
         self._notice_open = bool(data.get("notice_open"))
         switch = data.get("switch")
         if isinstance(switch, str) and switch.startswith("switch."):
@@ -57,7 +61,8 @@ class CableTest:
     def snapshot(self):
         return {"switch": self.switch, "at": self.at.isoformat() if self.at else None,
                 "result": self.result, "outcome": self._outcome if self.switch else None,
-                "reminded_on": self._reminded_on, "notice_open": self._notice_open}
+                "delivered": self._delivered, "notice_open": self._notice_open,
+                "retry_notifications_after": self._retry_notifications_after.isoformat() if self._retry_notifications_after else None}
 
     def measuring(self):
         return self._armed and self.switch == self.controller.config.get(CONF_SWITCH)
@@ -197,16 +202,11 @@ class CableTest:
         if self.result != "low_power":
             return
         day = dt_util.as_local(self.at).date().isoformat()
-        if self._reminded_on == day or day != dt_util.as_local(dt_util.utcnow()).date().isoformat():
+        now = dt_util.utcnow()
+        if (day != dt_util.as_local(now).date().isoformat()
+                or (self._retry_notifications_after and now < self._retry_notifications_after)):
             return
-        previous = self._reminded_on, self._notice_open
-        self._reminded_on = day
-        self._notice_open = True
-        try:
-            await controller._save()
-        except BaseException:
-            self._reminded_on, self._notice_open = previous
-            raise
+        self._delivered = {key: stamp for key, stamp in self._delivered.items() if stamp == day}
         sv = str(getattr(getattr(controller.hass, "config", None), "language", "en")).lower().startswith("sv")
         title = ("Motorvärmare: " if sv else "Engine heater: ") + controller.entry.title
         message = ("Kabeltestet visade låg effekt. Kontrollera kabeln inför morgondagens avresa."
@@ -219,7 +219,26 @@ class CableTest:
         for domain, service, data in targets:
             if not controller._alerts_allowed():
                 return
+            destination = data.get(ATTR_ENTITY_ID, domain)
+            if self._delivered.get(destination) == day:
+                continue
+            # Reserve each delivery before dispatch: a restart or cancellation
+            # after a successful mobile delivery must not duplicate the alert.
+            self._delivered[destination] = day
+            previous_open = self._notice_open
+            if domain == "persistent_notification":
+                self._notice_open = True
+            try:
+                await controller._save()
+            except BaseException:
+                del self._delivered[destination]
+                self._notice_open = previous_open
+                raise
             try:
                 await asyncio.wait_for(controller.hass.services.async_call(domain, service, data, blocking=True), timeout=10)
             except Exception:
+                del self._delivered[destination]
+                self._notice_open = previous_open
+                self._retry_notifications_after = dt_util.utcnow() + timedelta(minutes=5)
+                await controller._save_stop_state()
                 _LOGGER.warning("Unable to send cable test reminder for %s", controller.entry.title, exc_info=True)

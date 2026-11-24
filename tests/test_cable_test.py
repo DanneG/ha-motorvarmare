@@ -151,6 +151,35 @@ class CableTestTests(unittest.TestCase):
         self.assertFalse(self.notifications)
 
     @mocks.sync_test
+    async def test_failed_reminders_retry_after_five_minutes_only_for_missing_destinations(self):
+        self.item._cable.at, self.item._cable.result = self.now, "low_power"
+        self.hass.fail = {("persistent_notification", "create"), ("notify", "send_message")}
+        with self.assertLogs(cable_test.__name__, "WARNING"):
+            await self.item._cable.notify_if_due()
+        self.assertFalse(self.item._cable._notice_open)
+        self.assertFalse(self.item._cable._delivered)
+        self.hass.fail.remove(("notify", "send_message"))
+        self.now += timedelta(minutes=4)
+        await self.item._cable.notify_if_due()
+        self.assertEqual(len(self.hass.calls), 2)
+        self.now += timedelta(minutes=1)
+        with self.assertLogs(cable_test.__name__, "WARNING"):
+            await self.item._cable.notify_if_due()
+        self.assertEqual(len(self.notifications), 1)
+        self.hass.fail.clear()
+        restored = mocks.new_controller(self.hass)
+        restored.config.update(self.item.config)
+        restored._alerts_after = 0
+        await restored.async_load()
+        await restored._cable.notify_if_due()
+        self.assertEqual(len(self.hass.calls), 4)
+        self.now += timedelta(minutes=5)
+        await restored._cable.notify_if_due()
+        await restored._cable.notify_if_due()
+        self.assertEqual(len(self.hass.calls), 5)
+        self.assertEqual([domain for domain, _ in self.notifications], ["notify", "persistent_notification"])
+
+    @mocks.sync_test
     async def test_one_late_zero_is_low_even_with_zero_threshold(self):
         self.item.config["power_min_watts"] = 0
         async def sample_once():
