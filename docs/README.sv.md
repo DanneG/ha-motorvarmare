@@ -6,6 +6,7 @@
 [![Marketplace](https://img.shields.io/badge/Marketplace-tillg%C3%A4nglig-03A9F4?style=for-the-badge&logo=homeassistant&logoColor=white)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=DanneG&repository=ha-motorvarmare&category=integration)
 [![HACS Default](https://img.shields.io/badge/HACS-Default-orange?style=for-the-badge)](https://github.com/hacs/default)
 [![Senaste release](https://img.shields.io/github/v/release/DanneG/ha-motorvarmare?style=for-the-badge&label=release)](https://github.com/DanneG/ha-motorvarmare/releases/latest)
+[![Rapporterande installationer](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fanalytics.home-assistant.io%2Fcustom_integrations.json&query=%24.motorvarmare.total&style=for-the-badge&color=03A9F4&label=Rapporterande%20installationer)](https://analytics.home-assistant.io/custom_integrations.json#:~:text=%22motorvarmare%22)
 [![Validering på main](https://img.shields.io/github/actions/workflow/status/DanneG/ha-motorvarmare/validate.yml?branch=main&style=for-the-badge&label=validering)](https://github.com/DanneG/ha-motorvarmare/actions/workflows/validate.yml)
 [![Licens](https://img.shields.io/github/license/DanneG/ha-motorvarmare?style=for-the-badge&label=licens)](https://github.com/DanneG/ha-motorvarmare/blob/main/LICENSE)
 <!-- ha-marketplace:exclude-end -->
